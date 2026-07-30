@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "demo",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": ["run", "--project", "samples/BlazText.DemoApp", "--launch-profile", "http"],
+      "port": 5024
+    }
+  ]
+}

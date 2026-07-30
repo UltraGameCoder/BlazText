@@ -110,7 +110,7 @@
             await Api.ScrollToHighlightAsync(_activeIndex);
         }
 
-        StateHasChanged();
+        Editor.RequestRefresh();
     }
 
     private async Task MoveAsync(int direction)
@@ -123,6 +123,7 @@
         _activeIndex = (_activeIndex + direction + _matches.Count) % _matches.Count;
         await Api.HighlightRangesAsync(_matches, _activeIndex);
         await Api.ScrollToHighlightAsync(_activeIndex);
+        Editor.RequestRefresh();
     }
 
     private Task OnSearchKeyDown(KeyboardEventArgs e) => e.Key switch

@@ -1,7 +1,19 @@
-﻿@page "/"
+@page "/"
 
-<PageTitle>Home</PageTitle>
+<PageTitle>BlazText — Bare editor</PageTitle>
 
-<h1>Hello, world!</h1>
+<h1>Bare editor</h1>
+<p>
+    A <code>&lt;BlazTextEditor&gt;</code> with no plugins renders its bare minimum:
+    an editable surface with two-way content binding. Everything else is added by
+    placing plugin components inside it — see the other pages.
+</p>
 
-Welcome to your new app.
+<BlazTextEditor @bind-Value="_content" Placeholder="Start typing…" />
+
+<h5 class="mt-4">Bound value</h5>
+<pre class="border rounded p-2 bg-light"><code>@_content</code></pre>
+
+@code {
+    private string _content = "<p>Hello from <b>BlazText</b>! Native shortcuts like Ctrl+B still work here.</p>";
+}

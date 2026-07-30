@@ -70,7 +70,7 @@
             await RefreshPreviewAsync();
         }
 
-        StateHasChanged();
+        Editor.RequestRefresh();
     }
 
     private async Task ValidateAsync(string html)
@@ -88,6 +88,7 @@
         {
             _source = await Api.GetContentAsync();
             await ValidateAsync(_source);
+            Editor.RequestRefresh();
         }
     }
 
@@ -142,6 +143,7 @@
     {
         _source = e.Value?.ToString() ?? string.Empty;
         await ValidateAsync(_source);
+        Editor.RequestRefresh();
     }
 
     private Task ApplySourceAsync() => Api.SetContentAsync(_source);
@@ -156,6 +158,8 @@
         {
             await Api.SetContentAsync(HtmlTooling.Format(await Api.GetContentAsync()));
         }
+
+        Editor.RequestRefresh();
     }
 
     private RenderFragment Buttons => @<span style="display: contents">

@@ -1,0 +1,87 @@
+@page "/save-load"
+@using System.Text.Json
+@inject IJSRuntime JS
+
+<PageTitle>BlazText — Save &amp; load</PageTitle>
+
+<h1>Save &amp; load</h1>
+<p>
+    The <code>BlazTextDocument</code> (from the Blazor-free <code>BlazText.Models</code> package)
+    is the save/load contract: serialize it anywhere — a database via your backend, or
+    localStorage as done here — and hand it back to the editor to restore the session.
+</p>
+
+<BlazTextEditor @bind-Document="_document" Placeholder="Author something worth keeping…">
+    <BasicFormattingPlugin />
+    <ImagePlugin />
+    <LiquidPlugin />
+</BlazTextEditor>
+
+<div class="my-3 d-flex gap-2">
+    <button class="btn btn-primary" @onclick="SaveAsync">Save to localStorage</button>
+    <button class="btn btn-outline-primary" @onclick="LoadAsync">Load from localStorage</button>
+    <button class="btn btn-outline-secondary" @onclick="Clear">New document</button>
+</div>
+
+@if (_status is not null)
+{
+    <p class="text-success">@_status</p>
+}
+
+<h5>Serialized document</h5>
+<textarea class="form-control font-monospace" rows="10" value="@_json" @oninput="OnJsonEdited"></textarea>
+<button class="btn btn-outline-primary mt-2" @onclick="LoadFromTextArea">Load from JSON above</button>
+
+@code {
+    private const string StorageKey = "blaztext-demo-document";
+    private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
+
+    private BlazTextDocument _document = new();
+    private string _json = string.Empty;
+    private string? _status;
+
+    private async Task SaveAsync()
+    {
+        _json = JsonSerializer.Serialize(_document, JsonOptions);
+        await JS.InvokeVoidAsync("localStorage.setItem", StorageKey, _json);
+        _status = $"Saved {_json.Length} characters at {DateTime.Now:T}. Reload the page and press Load to restore.";
+    }
+
+    private async Task LoadAsync()
+    {
+        var stored = await JS.InvokeAsync<string?>("localStorage.getItem", StorageKey);
+
+        if (stored is null)
+        {
+            _status = "Nothing stored yet.";
+            return;
+        }
+
+        _json = stored;
+        Restore(stored);
+    }
+
+    private void LoadFromTextArea() => Restore(_json);
+
+    private void Restore(string json)
+    {
+        try
+        {
+            _document = JsonSerializer.Deserialize<BlazTextDocument>(json) ?? new();
+            _status = "Document restored — including images and detected drops.";
+        }
+        catch (JsonException e)
+        {
+            _status = $"Invalid JSON: {e.Message}";
+        }
+    }
+
+    private void Clear()
+    {
+        _document = new BlazTextDocument();
+        _json = string.Empty;
+        _status = null;
+    }
+
+    private void OnJsonEdited(ChangeEventArgs e) => _json = e.Value?.ToString() ?? string.Empty;
+}

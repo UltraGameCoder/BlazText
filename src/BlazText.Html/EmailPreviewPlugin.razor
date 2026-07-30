@@ -58,7 +58,7 @@
         if (_open)
         {
             await RefreshAsync();
-            StateHasChanged();
+            Editor.RequestRefresh();
         }
     }
 
@@ -81,6 +81,7 @@
     {
         _mobile = mobile;
         await RefreshAsync();
+        Editor.RequestRefresh();
     }
 
     private async Task RefreshAsync()

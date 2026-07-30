@@ -46,12 +46,14 @@
         if (!file.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
         {
             _error = "Not an image file.";
+            Editor.RequestRefresh();
             return;
         }
 
         if (file.Size > MaxFileSizeBytes)
         {
             _error = $"Image exceeds the {MaxFileSizeBytes / 1024 / 1024} MB limit.";
+            Editor.RequestRefresh();
             return;
         }
 
@@ -73,6 +75,7 @@
             $"<img data-blaztext-id=\"{image.Id}\" src=\"{image.ToDataUri()}\" alt=\"{file.Name}\">");
 
         await ImageInserted.InvokeAsync(image);
+        Editor.RequestRefresh();
     }
 
     private RenderFragment Button => @<span style="display: contents">

@@ -1,0 +1,23 @@
+@page "/custom-plugin"
+@using BlazText.DemoApp.Plugins
+
+<PageTitle>BlazText — Custom plugin</PageTitle>
+
+<h1>Writing your own plugin</h1>
+<p>
+    The color picker in this toolbar is <em>not</em> part of the library — it's
+    <a href="https://github.com/mikedegroot/BlazText/blob/main/samples/BlazText.DemoApp/Plugins/ColorPickerPlugin.razor">
+        ~50 lines in this demo app</a>: derive from <code>BlazTextPluginBase</code>,
+    register a <code>ToolbarItem</code>, call <code>Api.ApplyFormatAsync("foreColor", …)</code>.
+    The same pattern carries AI menu items, extra Liquid drops, or anything else —
+    see <code>docs/extending.md</code>.
+</p>
+
+<BlazTextEditor @bind-Value="_content">
+    <BasicFormattingPlugin />
+    <ColorPickerPlugin />
+</BlazTextEditor>
+
+@code {
+    private string _content = "<p>Select some text and give it a color.</p>";
+}

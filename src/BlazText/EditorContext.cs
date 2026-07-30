@@ -135,6 +135,13 @@ public class EditorContext
         return html;
     }
 
+    /// <summary>
+    /// Asks the editor to re-render its chrome. Toolbar items and panels execute inside the
+    /// editor's render tree, so a plugin whose fragment content changed must call this —
+    /// its own StateHasChanged only re-renders the plugin component itself.
+    /// </summary>
+    public void RequestRefresh() => NotifyChanged();
+
     /// <summary>Makes a plugin instance discoverable by other plugins via <see cref="GetPlugin{T}"/>.</summary>
     public void RegisterPlugin(object plugin) => _plugins.Add(plugin);
 

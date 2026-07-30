@@ -80,7 +80,7 @@
     private async Task OnContentChanged(ContentChangedEventArgs args)
     {
         await AnalyzeAsync(args.Html);
-        StateHasChanged();
+        Editor.RequestRefresh();
     }
 
     private async Task AnalyzeAsync(string content)

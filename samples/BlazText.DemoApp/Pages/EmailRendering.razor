@@ -1,0 +1,81 @@
+@page "/email-rendering"
+
+<PageTitle>BlazText — Email rendering</PageTitle>
+
+<h1>Email rendering</h1>
+<p>
+    E-mail clients strip <code>&lt;style&gt;</code> blocks, so <code>BlazText.Rendering</code>
+    inlines CSS onto each element at render time. Author with normal CSS on the left; the
+    right shows exactly what a backend produces with <code>RenderOptions.ForEmail()</code> —
+    the same pipeline the <code>EmailPreviewPlugin</code> uses.
+</p>
+
+<BlazTextEditor @bind-Document="_document">
+    <BasicFormattingPlugin />
+    <HtmlPlugin />
+    <LiquidPlugin Drops="_drops" />
+    <EmailPreviewPlugin LayoutContent="@Layout" />
+</BlazTextEditor>
+
+<button class="btn btn-primary my-3" @onclick="RenderAsync">Render like a backend would</button>
+
+@if (_rendered is not null)
+{
+    <div class="row">
+        <div class="col-lg-6">
+            <h5>Final e-mail HTML (CSS inlined)</h5>
+            <pre class="border rounded p-2 bg-light" style="max-height: 20rem; overflow: auto"><code>@_rendered.Html</code></pre>
+            @foreach (var warning in _rendered.Warnings)
+            {
+                <p class="text-warning-emphasis small">⚠ @warning</p>
+            }
+        </div>
+        <div class="col-lg-6">
+            <h5>Rendered</h5>
+            <iframe class="border rounded w-100" style="height: 20rem" sandbox srcdoc="@_rendered.Html"></iframe>
+        </div>
+    </div>
+}
+
+@code {
+    private const string Layout = """
+        <html>
+          <body style="margin:0; background:#f0f2f5; padding:24px; font-family: Arial, sans-serif;">
+            <div style="max-width:600px; margin:auto; background:#ffffff; border-radius:8px; padding:24px;">
+              {{ body }}
+              <hr>
+              <p style="color:#98a2b3; font-size:12px;">You receive this because you signed up at {{ company }}.</p>
+            </div>
+          </body>
+        </html>
+        """;
+
+    private BlazTextDocument _document = new()
+    {
+        Content = """
+            <style>
+              h2 { color: #1d4ed8; }
+              .highlight { background: #fef3c7; padding: 2px 4px; }
+            </style>
+            <h2>Hi {{ user.name }}!</h2>
+            <p>Your order is <span class="highlight">on its way</span>.</p>
+            """,
+    };
+
+    private readonly Dictionary<string, object?> _drops = new()
+    {
+        ["user"] = new { name = "Ada" },
+        ["company"] = "BlazText Inc.",
+    };
+
+    private RenderResult? _rendered;
+
+    private async Task RenderAsync()
+    {
+        var options = RenderOptions.ForEmail();
+        options.LiquidValues = _drops;
+        options.LayoutContent = Layout;
+
+        _rendered = await BlazTextRenderer.RenderAsync(_document, options);
+    }
+}

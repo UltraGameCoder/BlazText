@@ -1,0 +1,63 @@
+@page "/kitchen-sink"
+
+<PageTitle>BlazText — Kitchen sink</PageTitle>
+
+<h1>Kitchen sink</h1>
+<p>Every built-in plugin attached to one editor. Type <code>{{</code> for drop autocomplete.</p>
+
+<BlazTextEditor @bind-Document="_document" Placeholder="Write a template…">
+    <BasicFormattingPlugin />
+    <ImagePlugin />
+    <SearchPlugin Comparison="StringComparison.OrdinalIgnoreCase" />
+    <AutoCompletePlugin />
+    <HtmlPlugin />
+    <EmailPreviewPlugin />
+    <LiquidPlugin Drops="_drops"
+                  DropDefinitions="_dropDefinitions"
+                  DetectedDropsChanged="drops => _detected = drops" />
+</BlazTextEditor>
+
+<div class="row mt-4">
+    <div class="col-md-6">
+        <h5>Detected drops</h5>
+        @if (_detected.Count == 0)
+        {
+            <p class="text-muted">None yet — try typing <code>{{ user.name }}</code>.</p>
+        }
+        else
+        {
+            <ul>
+                @foreach (var drop in _detected)
+                {
+                    <li><code>@drop.Path</code> ×@drop.Occurrences</li>
+                }
+            </ul>
+        }
+    </div>
+    <div class="col-md-6">
+        <h5>Images in document</h5>
+        <p>@_document.Images.Count image(s), @_document.Images.Sum(i => i.Data.Length) bytes total.</p>
+    </div>
+</div>
+
+@code {
+    private BlazTextDocument _document = new()
+    {
+        Content = "<p>Hi {{ user.name }},</p><p>welcome to <b>{{ company }}</b>!</p>",
+    };
+
+    private IReadOnlyList<DetectedDrop> _detected = [];
+
+    private readonly Dictionary<string, object?> _drops = new()
+    {
+        ["user"] = new { name = "Ada", email = "ada@example.com" },
+        ["company"] = "BlazText Inc.",
+    };
+
+    private readonly List<LiquidDropDefinition> _dropDefinitions =
+    [
+        new("user.name", "Recipient's display name"),
+        new("user.email", "Recipient's e-mail address"),
+        new("company", "Your company name"),
+    ];
+}

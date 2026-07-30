@@ -1,0 +1,48 @@
+@* A third-party plugin lives entirely outside the library: derive from
+   BlazTextPluginBase, register a toolbar item, and drive the EditorApi. *@
+@inherits BlazTextPluginBase
+
+@code {
+    private ToolbarItem? _item;
+    private string _color = "#d61f1f";
+
+    [Parameter]
+    public int Order { get; set; } = 20;
+
+    protected override Task OnEditorInitializedAsync()
+    {
+        _item = new ToolbarItem { Id = "demo-color-picker", Order = Order, Content = Picker };
+        Editor.RegisterToolbarItem(_item);
+        return Task.CompletedTask;
+    }
+
+    protected override ValueTask OnDisposingAsync()
+    {
+        if (_item is not null)
+        {
+            Editor.UnregisterToolbarItem(_item);
+        }
+
+        return ValueTask.CompletedTask;
+    }
+
+    private async Task OnColorPicked(ChangeEventArgs e)
+    {
+        _color = e.Value?.ToString() ?? _color;
+        await Api.ApplyFormatAsync("foreColor", _color);
+    }
+
+    private Task ReapplyAsync() => Api.ApplyFormatAsync("foreColor", _color);
+
+    private RenderFragment Picker => @<span style="display: contents">
+        <button type="button" class="blaztext-btn" title="Apply text color" @onclick="ReapplyAsync">
+            <span style="border-bottom: 3px solid @_color; padding: 0 2px">A</span>
+        </button>
+        <input type="color"
+               class="blaztext-btn"
+               style="padding: 2px; width: 1.9rem"
+               title="Pick text color"
+               value="@_color"
+               @onchange="OnColorPicked" />
+    </span>;
+}
