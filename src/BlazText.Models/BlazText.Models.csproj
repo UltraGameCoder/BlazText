@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>Dependency-free data contracts for BlazText documents. Reference this from any C# backend to save, load, and inspect BlazText editor output without pulling in Blazor.</Description>
+  </PropertyGroup>
+
+</Project>

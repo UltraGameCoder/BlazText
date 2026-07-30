@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+
+  <PropertyGroup>
+    <Description>Extensible rich text editor component for Blazor. Ships a bare-minimum contenteditable editor plus dependency-free plugins (search, autocomplete, images); add BlazText.Html and BlazText.Liquid for HTML tooling, email preview, and Liquid templating.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <SupportedPlatform Include="browser" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Components.Web" Version="10.0.8" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\BlazText.Models\BlazText.Models.csproj" />
+  </ItemGroup>
+
+</Project>

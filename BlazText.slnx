@@ -1,0 +1,15 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/BlazText.Models/BlazText.Models.csproj" />
+    <Project Path="src/BlazText.Rendering/BlazText.Rendering.csproj" />
+    <Project Path="src/BlazText/BlazText.csproj" />
+    <Project Path="src/BlazText.Html/BlazText.Html.csproj" />
+    <Project Path="src/BlazText.Liquid/BlazText.Liquid.csproj" />
+  </Folder>
+  <Folder Name="/samples/">
+    <Project Path="samples/BlazText.DemoApp/BlazText.DemoApp.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/BlazText.Tests/BlazText.Tests.csproj" />
+  </Folder>
+</Solution>
