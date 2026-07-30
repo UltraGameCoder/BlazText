@@ -7,4 +7,4 @@ Data contracts for BlazText documents, with **zero dependencies** (no Blazor). R
 
 Save an editor's document anywhere, load it back to restore the session, or feed it to `BlazText.Rendering` to produce final webpage/e-mail HTML.
 
-Documentation: https://github.com/mikedegroot/BlazText
+Documentation: https://github.com/UltraGameCoder/BlazText

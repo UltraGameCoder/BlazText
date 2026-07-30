@@ -13,4 +13,4 @@ var result = await BlazTextRenderer.RenderAsync(document, options);
 // result.Html is ready to send
 ```
 
-Documentation: https://github.com/mikedegroot/BlazText
+Documentation: https://github.com/UltraGameCoder/BlazText

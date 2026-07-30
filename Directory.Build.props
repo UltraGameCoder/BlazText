@@ -11,13 +11,20 @@
   <PropertyGroup Label="Package metadata defaults">
     <Authors>Mike de Groot</Authors>
     <Product>BlazText</Product>
-    <Version>0.1.0</Version>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <!-- TODO: update once the GitHub repository exists -->
-    <PackageProjectUrl>https://github.com/mikedegroot/BlazText</PackageProjectUrl>
-    <RepositoryUrl>https://github.com/mikedegroot/BlazText</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/UltraGameCoder/BlazText</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/UltraGameCoder/BlazText</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageTags>blazor;rich-text-editor;wysiwyg;liquid;email;templates</PackageTags>
   </PropertyGroup>
+
+  <PropertyGroup Label="Versioning">
+    <!-- Versions come from git tags (v1.2.3) via MinVer; untagged builds get pre-release versions. -->
+    <MinVerTagPrefix>v</MinVerTagPrefix>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MinVer" Version="6.0.0" PrivateAssets="All" />
+  </ItemGroup>
 
 </Project>

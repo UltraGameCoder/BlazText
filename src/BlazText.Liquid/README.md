@@ -14,4 +14,4 @@ Shopify Liquid templating plugin for the BlazText editor (powered by Fluid):
 </BlazTextEditor>
 ```
 
-Documentation: https://github.com/mikedegroot/BlazText
+Documentation: https://github.com/UltraGameCoder/BlazText

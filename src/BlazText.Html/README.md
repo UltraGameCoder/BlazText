@@ -12,4 +12,4 @@ HTML tooling plugins for the BlazText editor (AngleSharp-backed):
 </BlazTextEditor>
 ```
 
-Documentation: https://github.com/mikedegroot/BlazText
+Documentation: https://github.com/UltraGameCoder/BlazText
