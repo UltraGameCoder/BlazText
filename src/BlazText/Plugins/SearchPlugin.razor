@@ -1,0 +1,153 @@
+@namespace BlazText.Plugins
+@inherits BlazTextPluginBase
+
+@code {
+    private ToolbarItem? _item;
+    private string _query = string.Empty;
+    private bool _caseSensitive;
+    private List<TextRange> _matches = [];
+    private int _activeIndex = -1;
+
+    /// <summary>
+    /// How matches are compared. The toolbar's "Aa" toggle switches between this comparison's
+    /// case-sensitive and case-insensitive variants at runtime.
+    /// </summary>
+    [Parameter]
+    public StringComparison Comparison { get; set; } = StringComparison.OrdinalIgnoreCase;
+
+    [Parameter]
+    public string SearchPlaceholder { get; set; } = "Search…";
+
+    [Parameter]
+    public int Order { get; set; } = 50;
+
+    /// <summary>The comparison currently in effect, after the case toggle is applied.</summary>
+    public StringComparison EffectiveComparison => _caseSensitive
+        ? Comparison switch
+        {
+            StringComparison.OrdinalIgnoreCase => StringComparison.Ordinal,
+            StringComparison.CurrentCultureIgnoreCase => StringComparison.CurrentCulture,
+            StringComparison.InvariantCultureIgnoreCase => StringComparison.InvariantCulture,
+            _ => Comparison,
+        }
+        : Comparison switch
+        {
+            StringComparison.Ordinal => StringComparison.OrdinalIgnoreCase,
+            StringComparison.CurrentCulture => StringComparison.CurrentCultureIgnoreCase,
+            StringComparison.InvariantCulture => StringComparison.InvariantCultureIgnoreCase,
+            _ => Comparison,
+        };
+
+    protected override Task OnEditorInitializedAsync()
+    {
+        _caseSensitive = Comparison is StringComparison.Ordinal
+            or StringComparison.CurrentCulture
+            or StringComparison.InvariantCulture;
+
+        _item = new ToolbarItem { Id = "blaztext-search", Order = Order, Content = SearchBox };
+        Editor.RegisterToolbarItem(_item);
+        Editor.ContentChanged += OnContentChanged;
+        return Task.CompletedTask;
+    }
+
+    protected override async ValueTask OnDisposingAsync()
+    {
+        Editor.ContentChanged -= OnContentChanged;
+
+        if (_item is not null)
+        {
+            Editor.UnregisterToolbarItem(_item);
+        }
+
+        await Api.ClearHighlightsAsync();
+    }
+
+    private Task OnContentChanged(ContentChangedEventArgs args) =>
+        _query.Length > 0 ? RunSearchAsync(keepActive: true) : Task.CompletedTask;
+
+    private async Task OnQueryInput(ChangeEventArgs e)
+    {
+        _query = e.Value?.ToString() ?? string.Empty;
+        await RunSearchAsync(keepActive: false);
+    }
+
+    private async Task ToggleCaseAsync()
+    {
+        _caseSensitive = !_caseSensitive;
+        await RunSearchAsync(keepActive: false);
+    }
+
+    private async Task RunSearchAsync(bool keepActive)
+    {
+        if (_query.Length == 0)
+        {
+            _matches = [];
+            _activeIndex = -1;
+            await Api.ClearHighlightsAsync();
+            return;
+        }
+
+        var text = await Api.GetPlainTextAsync();
+        var matches = new List<TextRange>();
+        var index = 0;
+
+        while (index <= text.Length - _query.Length &&
+               (index = text.IndexOf(_query, index, EffectiveComparison)) >= 0)
+        {
+            matches.Add(new TextRange(index, _query.Length));
+            index += 1;
+        }
+
+        _matches = matches;
+        _activeIndex = matches.Count == 0
+            ? -1
+            : keepActive && _activeIndex >= 0 ? Math.Min(_activeIndex, matches.Count - 1) : 0;
+
+        await Api.HighlightRangesAsync(_matches, _activeIndex);
+
+        if (_activeIndex >= 0 && !keepActive)
+        {
+            await Api.ScrollToHighlightAsync(_activeIndex);
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task MoveAsync(int direction)
+    {
+        if (_matches.Count == 0)
+        {
+            return;
+        }
+
+        _activeIndex = (_activeIndex + direction + _matches.Count) % _matches.Count;
+        await Api.HighlightRangesAsync(_matches, _activeIndex);
+        await Api.ScrollToHighlightAsync(_activeIndex);
+    }
+
+    private Task OnSearchKeyDown(KeyboardEventArgs e) => e.Key switch
+    {
+        "Enter" when e.ShiftKey => MoveAsync(-1),
+        "Enter" => MoveAsync(1),
+        _ => Task.CompletedTask,
+    };
+
+    private RenderFragment SearchBox => @<span style="display: contents">
+        <input class="blaztext-input"
+               type="search"
+               placeholder="@SearchPlaceholder"
+               value="@_query"
+               @oninput="OnQueryInput"
+               @onkeydown="OnSearchKeyDown" />
+        <button type="button"
+                class="blaztext-btn @(_caseSensitive ? "active" : null)"
+                title="Match case"
+                @onclick="ToggleCaseAsync">Aa</button>
+        <button type="button" class="blaztext-btn" title="Previous match" @onclick="@(() => MoveAsync(-1))">↑</button>
+        <button type="button" class="blaztext-btn" title="Next match" @onclick="@(() => MoveAsync(1))">↓</button>
+        @if (_query.Length > 0)
+        {
+            <span class="blaztext-muted">@(_matches.Count == 0 ? "0/0" : $"{_activeIndex + 1}/{_matches.Count}")</span>
+        }
+    </span>;
+}

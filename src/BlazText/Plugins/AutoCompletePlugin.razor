@@ -1,0 +1,136 @@
+@namespace BlazText.Plugins
+@inherits BlazTextPluginBase
+@implements IDisposable
+
+@if (_open && _caret is not null)
+{
+    <div class="blaztext-autocomplete"
+         style="@FormattableString.Invariant($"top: {_caret.Bottom + 4:0.##}px; left: {_caret.Left:0.##}px")">
+        @for (var i = 0; i < _items.Count; i++)
+        {
+            var index = i;
+            var suggestion = _items[i];
+            <button type="button"
+                    class="blaztext-autocomplete-item @(index == _selectedIndex ? "active" : null)"
+                    @onmousedown="@(() => CommitAsync(suggestion))"
+                    @onmousedown:preventDefault="true">
+                <span>@suggestion.Label</span>
+                @if (suggestion.Description is { } description)
+                {
+                    <span class="blaztext-muted">@description</span>
+                }
+            </button>
+        }
+    </div>
+}
+
+@code {
+    private static readonly string[] InterceptedKeys = ["ArrowDown", "ArrowUp", "Enter", "Escape", "Tab"];
+
+    private bool _open;
+    private IReadOnlyList<Suggestion> _items = [];
+    private int _selectedIndex;
+    private int _replaceLength;
+    private CaretRect? _caret;
+    private int _querySequence;
+    private IDisposable? _keyInterception;
+
+    /// <summary>Caps how many suggestions the popup shows.</summary>
+    [Parameter]
+    public int MaxItems { get; set; } = 8;
+
+    protected override Task OnEditorInitializedAsync()
+    {
+        Editor.ContentChanged += OnContentChanged;
+        Editor.SelectionChanged += OnSelectionChanged;
+        return Task.CompletedTask;
+    }
+
+    protected override ValueTask OnDisposingAsync()
+    {
+        Editor.ContentChanged -= OnContentChanged;
+        Editor.SelectionChanged -= OnSelectionChanged;
+        Close();
+        return ValueTask.CompletedTask;
+    }
+
+    private Task OnContentChanged(ContentChangedEventArgs args) => QueryAsync(args.TextBeforeCaret, args.Caret);
+
+    private Task OnSelectionChanged(SelectionChangedEventArgs args) =>
+        args.IsCollapsed ? QueryAsync(args.TextBeforeCaret, args.Caret) : Task.CompletedTask;
+
+    private async Task QueryAsync(string textBeforeCaret, CaretRect? caret)
+    {
+        var sequence = ++_querySequence;
+        var request = new SuggestionRequest(textBeforeCaret);
+
+        foreach (var provider in Editor.SuggestionProviders)
+        {
+            var result = await provider.GetSuggestionsAsync(request);
+
+            if (sequence != _querySequence)
+            {
+                return; // A newer query superseded this one.
+            }
+
+            if (result is { Items.Count: > 0 })
+            {
+                Open(result, caret);
+                return;
+            }
+        }
+
+        Close();
+        StateHasChanged();
+    }
+
+    private void Open(SuggestionResult result, CaretRect? caret)
+    {
+        _items = result.Items.Take(MaxItems).ToList();
+        _replaceLength = result.ReplaceLength;
+        _caret = caret;
+        _selectedIndex = 0;
+        _open = true;
+        _keyInterception ??= Editor.InterceptKeys(InterceptedKeys, HandleKeyAsync);
+        StateHasChanged();
+    }
+
+    private void Close()
+    {
+        _open = false;
+        _items = [];
+        _keyInterception?.Dispose();
+        _keyInterception = null;
+    }
+
+    private async Task HandleKeyAsync(string key)
+    {
+        switch (key)
+        {
+            case "ArrowDown":
+                _selectedIndex = (_selectedIndex + 1) % _items.Count;
+                break;
+            case "ArrowUp":
+                _selectedIndex = (_selectedIndex - 1 + _items.Count) % _items.Count;
+                break;
+            case "Enter" or "Tab" when _selectedIndex < _items.Count:
+                await CommitAsync(_items[_selectedIndex]);
+                return;
+            case "Escape":
+                Close();
+                break;
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task CommitAsync(Suggestion suggestion)
+    {
+        var replaceLength = _replaceLength;
+        Close();
+        StateHasChanged();
+        await Api.ReplaceTextBeforeCaretAsync(replaceLength, suggestion.InsertText);
+    }
+
+    void IDisposable.Dispose() => Close();
+}

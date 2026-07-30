@@ -1,0 +1,88 @@
+@namespace BlazText.Plugins
+@inherits BlazTextPluginBase
+@using Microsoft.AspNetCore.Components.Forms
+
+@code {
+    private ToolbarItem? _item;
+    private string? _error;
+
+    /// <summary>Maximum accepted file size in bytes.</summary>
+    [Parameter]
+    public long MaxFileSizeBytes { get; set; } = 5 * 1024 * 1024;
+
+    /// <summary>The file input's accept filter.</summary>
+    [Parameter]
+    public string Accept { get; set; } = "image/*";
+
+    [Parameter]
+    public int Order { get; set; } = 30;
+
+    /// <summary>Raised after an image was added to the document.</summary>
+    [Parameter]
+    public EventCallback<EmbeddedImage> ImageInserted { get; set; }
+
+    protected override Task OnEditorInitializedAsync()
+    {
+        _item = new ToolbarItem { Id = "blaztext-image", Order = Order, Content = Button };
+        Editor.RegisterToolbarItem(_item);
+        return Task.CompletedTask;
+    }
+
+    protected override ValueTask OnDisposingAsync()
+    {
+        if (_item is not null)
+        {
+            Editor.UnregisterToolbarItem(_item);
+        }
+
+        return ValueTask.CompletedTask;
+    }
+
+    private async Task OnFileSelected(InputFileChangeEventArgs e)
+    {
+        _error = null;
+        var file = e.File;
+
+        if (!file.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+        {
+            _error = "Not an image file.";
+            return;
+        }
+
+        if (file.Size > MaxFileSizeBytes)
+        {
+            _error = $"Image exceeds the {MaxFileSizeBytes / 1024 / 1024} MB limit.";
+            return;
+        }
+
+        using var stream = new MemoryStream();
+        await file.OpenReadStream(MaxFileSizeBytes).CopyToAsync(stream);
+
+        var image = new EmbeddedImage
+        {
+            FileName = file.Name,
+            ContentType = file.ContentType,
+            Data = stream.ToArray(),
+        };
+
+        await Api.UpdateDocumentAsync(d => d.Images.Add(image));
+
+        // The DOM shows the data: URI; getContent normalizes it back to blaztext:{id}
+        // via the data-blaztext-id marker, so the stored document stays blob-free.
+        await Api.InsertHtmlAtSelectionAsync(
+            $"<img data-blaztext-id=\"{image.Id}\" src=\"{image.ToDataUri()}\" alt=\"{file.Name}\">");
+
+        await ImageInserted.InvokeAsync(image);
+    }
+
+    private RenderFragment Button => @<span style="display: contents">
+        <label class="blaztext-btn" title="Insert image" style="margin: 0">
+            🖼
+            <InputFile OnChange="OnFileSelected" accept="@Accept" style="display: none" />
+        </label>
+        @if (_error is not null)
+        {
+            <span class="blaztext-muted" role="alert">@_error</span>
+        }
+    </span>;
+}

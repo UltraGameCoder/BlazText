@@ -1,0 +1,32 @@
+@namespace BlazText
+
+<div class="blaztext @Class" style="@Style" @attributes="AdditionalAttributes">
+    <CascadingValue Value="_context" IsFixed="true">
+        @if (_context.ToolbarItems.Count > 0)
+        {
+            <div class="blaztext-toolbar" role="toolbar">
+                @foreach (var item in _context.ToolbarItems.OrderBy(i => i.Order))
+                {
+                    <div class="blaztext-toolbar-item" @key="item.Id">@item.Content</div>
+                }
+            </div>
+        }
+        <div class="blaztext-main">
+            <div class="blaztext-surface"
+                 @ref="_surface"
+                 contenteditable="true"
+                 data-placeholder="@Placeholder"
+                 role="textbox"
+                 aria-multiline="true"></div>
+            @foreach (var panel in _context.Panels.Where(p => p.Position == PanelPosition.Right).OrderBy(p => p.Order))
+            {
+                <div class="blaztext-panel blaztext-panel-right" @key="panel.Id">@panel.Content</div>
+            }
+        </div>
+        @foreach (var panel in _context.Panels.Where(p => p.Position == PanelPosition.Bottom).OrderBy(p => p.Order))
+        {
+            <div class="blaztext-panel blaztext-panel-bottom" @key="panel.Id">@panel.Content</div>
+        }
+        @ChildContent
+    </CascadingValue>
+</div>

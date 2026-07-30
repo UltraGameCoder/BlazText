@@ -1,0 +1,37 @@
+@namespace BlazText.Plugins
+@inherits BlazTextPluginBase
+
+@code {
+    private ToolbarItem? _item;
+
+    /// <summary>Position of the formatting buttons among other toolbar items.</summary>
+    [Parameter]
+    public int Order { get; set; } = 0;
+
+    protected override Task OnEditorInitializedAsync()
+    {
+        _item = new ToolbarItem { Id = "blaztext-formatting", Order = Order, Content = Buttons };
+        Editor.RegisterToolbarItem(_item);
+        return Task.CompletedTask;
+    }
+
+    protected override ValueTask OnDisposingAsync()
+    {
+        if (_item is not null)
+        {
+            Editor.UnregisterToolbarItem(_item);
+        }
+
+        return ValueTask.CompletedTask;
+    }
+
+    private RenderFragment Buttons => @<span style="display: contents">
+        <button type="button" class="blaztext-btn" title="Bold" @onclick="@(() => Api.ApplyFormatAsync("bold"))"><b>B</b></button>
+        <button type="button" class="blaztext-btn" title="Italic" @onclick="@(() => Api.ApplyFormatAsync("italic"))"><i>I</i></button>
+        <button type="button" class="blaztext-btn" title="Underline" @onclick="@(() => Api.ApplyFormatAsync("underline"))"><u>U</u></button>
+        <button type="button" class="blaztext-btn" title="Strikethrough" @onclick="@(() => Api.ApplyFormatAsync("strikeThrough"))"><s>S</s></button>
+        <button type="button" class="blaztext-btn" title="Bulleted list" @onclick="@(() => Api.ApplyFormatAsync("insertUnorderedList"))">•≡</button>
+        <button type="button" class="blaztext-btn" title="Numbered list" @onclick="@(() => Api.ApplyFormatAsync("insertOrderedList"))">1≡</button>
+        <button type="button" class="blaztext-btn" title="Clear formatting" @onclick="@(() => Api.ApplyFormatAsync("removeFormat"))">⊘</button>
+    </span>;
+}
