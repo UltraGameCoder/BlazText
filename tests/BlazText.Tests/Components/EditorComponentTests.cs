@@ -73,7 +73,7 @@ public class EditorComponentTests : TestContext
         var cut = RenderComponent<BlazTextEditor>(p => p.AddChildContent<BasicFormattingPlugin>());
         cut.WaitForAssertion(() => Assert.NotEmpty(cut.FindAll(".blaztext-toolbar button")));
 
-        cut.SetParametersAndRender(p => p.AddChildContent((Microsoft.AspNetCore.Components.RenderFragment?)null));
+        cut.SetParametersAndRender(p => p.AddChildContent(builder => { }));
 
         cut.WaitForAssertion(() => Assert.Empty(cut.FindAll(".blaztext-toolbar button")));
     }
