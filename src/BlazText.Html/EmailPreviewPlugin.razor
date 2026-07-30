@@ -1,0 +1,126 @@
+@namespace BlazText.Html
+@using BlazText.Rendering
+@inherits BlazTextPluginBase
+
+@code {
+    private ToolbarItem? _toolbarItem;
+    private EditorPanel? _panel;
+    private bool _open;
+    private bool _mobile;
+    private string _previewHtml = string.Empty;
+    private IReadOnlyList<string> _warnings = [];
+
+    [Parameter]
+    public PanelPosition Position { get; set; } = PanelPosition.Right;
+
+    [Parameter]
+    public int Order { get; set; } = 70;
+
+    /// <summary>
+    /// Optional Liquid layout wrapping the document for the preview, exposed as <c>{{ body }}</c>.
+    /// Matches <see cref="RenderOptions.LayoutContent"/> so the preview equals the sent e-mail.
+    /// </summary>
+    [Parameter]
+    public string? LayoutContent { get; set; }
+
+    /// <summary>Preview width in the mobile preset, in CSS pixels.</summary>
+    [Parameter]
+    public int MobileWidth { get; set; } = 375;
+
+    protected override Task OnEditorInitializedAsync()
+    {
+        _toolbarItem = new ToolbarItem { Id = "blaztext-email", Order = Order, Content = Button };
+        _panel = new EditorPanel { Id = "blaztext-email-preview", Order = 20, Position = Position, Content = Preview };
+        Editor.RegisterToolbarItem(_toolbarItem);
+        Editor.ContentChanged += OnContentChanged;
+        return Task.CompletedTask;
+    }
+
+    protected override ValueTask OnDisposingAsync()
+    {
+        Editor.ContentChanged -= OnContentChanged;
+
+        if (_toolbarItem is not null)
+        {
+            Editor.UnregisterToolbarItem(_toolbarItem);
+        }
+
+        if (_panel is not null && Editor.Panels.Contains(_panel))
+        {
+            Editor.UnregisterPanel(_panel);
+        }
+
+        return ValueTask.CompletedTask;
+    }
+
+    private async Task OnContentChanged(ContentChangedEventArgs args)
+    {
+        if (_open)
+        {
+            await RefreshAsync();
+            StateHasChanged();
+        }
+    }
+
+    private async Task ToggleAsync()
+    {
+        _open = !_open;
+
+        if (_open)
+        {
+            Editor.RegisterPanel(_panel!);
+            await RefreshAsync();
+        }
+        else
+        {
+            Editor.UnregisterPanel(_panel!);
+        }
+    }
+
+    private async Task SetMobileAsync(bool mobile)
+    {
+        _mobile = mobile;
+        await RefreshAsync();
+    }
+
+    private async Task RefreshAsync()
+    {
+        // Chain other plugins' renderers first (e.g. Liquid), then run the same
+        // email pipeline a backend would: image resolution + CSS inlining.
+        var html = await Editor.ApplyContentRenderersAsync();
+
+        var result = await BlazTextRenderer.RenderAsync(
+            new BlazTextDocument { Content = html, Images = Editor.Document.Images },
+            new RenderOptions
+            {
+                RenderLiquid = false,
+                LayoutContent = LayoutContent,
+                InlineCss = true,
+            });
+
+        _previewHtml = HtmlTooling.Sanitize(result.Html);
+        _warnings = result.Warnings;
+    }
+
+    private RenderFragment Button => @<span style="display: contents">
+        <button type="button" class="blaztext-btn @(_open ? "active" : null)" title="E-mail preview" @onclick="ToggleAsync">✉</button>
+    </span>;
+
+    private RenderFragment Preview => @<div class="blaztext-email-preview">
+        <div class="blaztext-email-preview-bar">
+            <button type="button" class="blaztext-btn @(!_mobile ? "active" : null)" @onclick="@(() => SetMobileAsync(false))">Desktop</button>
+            <button type="button" class="blaztext-btn @(_mobile ? "active" : null)" @onclick="@(() => SetMobileAsync(true))">Mobile</button>
+            @if (_warnings.Count > 0)
+            {
+                <span class="blaztext-muted" title="@string.Join("\n", _warnings)">⚠ @_warnings.Count</span>
+            }
+        </div>
+        <div class="blaztext-email-preview-viewport">
+            <iframe class="blaztext-email-preview-frame"
+                    style="@(_mobile ? FormattableString.Invariant($"width: {MobileWidth}px") : "width: 100%")"
+                    sandbox=""
+                    title="E-mail preview"
+                    srcdoc="@_previewHtml"></iframe>
+        </div>
+    </div>;
+}

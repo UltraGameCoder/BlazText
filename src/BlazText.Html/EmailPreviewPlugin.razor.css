@@ -1,0 +1,31 @@
+.blaztext-email-preview {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 14rem;
+}
+
+.blaztext-email-preview-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.375rem;
+    border-bottom: 1px solid var(--blaztext-border-color, #d0d5dd);
+}
+
+.blaztext-email-preview-viewport {
+    flex: 1;
+    display: flex;
+    justify-content: center;
+    overflow: auto;
+    background: var(--blaztext-panel-bg, #f2f4f7);
+    padding: 0.5rem;
+}
+
+.blaztext-email-preview-frame {
+    border: none;
+    background: #ffffff;
+    box-shadow: 0 1px 4px rgb(0 0 0 / 0.15);
+    height: 100%;
+    min-height: 12rem;
+}

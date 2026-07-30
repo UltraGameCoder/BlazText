@@ -1,0 +1,156 @@
+@namespace BlazText.Liquid
+@using System.Text.RegularExpressions
+@using BlazText.Rendering
+@using Fluid
+@inherits BlazTextPluginBase
+
+@code {
+    private static readonly FluidParser Parser = new();
+    private static readonly Regex TriggerPattern = new(@"\{\{-?\s*(?<prefix>[a-zA-Z_][a-zA-Z0-9_.]*|)$", RegexOptions.Compiled);
+
+    private ToolbarItem? _statusItem;
+    private LiquidContentRenderer? _renderer;
+    private LiquidSuggestionProvider? _suggestionProvider;
+    private string? _parseError;
+
+    /// <summary>Values used to render Liquid in previews, keyed by drop name.</summary>
+    [Parameter]
+    public Dictionary<string, object?> Drops { get; set; } = [];
+
+    /// <summary>
+    /// Drop paths offered by autocomplete. When omitted, the keys of <see cref="Drops"/> are offered.
+    /// Declare deep paths (e.g. "user.name") to make members completable.
+    /// </summary>
+    [Parameter]
+    public IReadOnlyList<LiquidDropDefinition>? DropDefinitions { get; set; }
+
+    /// <summary>Raised when the set of drops used in the content changes (also kept on Document.DetectedDrops).</summary>
+    [Parameter]
+    public EventCallback<IReadOnlyList<DetectedDrop>> DetectedDropsChanged { get; set; }
+
+    /// <summary>Raised with the parse error when the content stops (or starts) being a valid Liquid template.</summary>
+    [Parameter]
+    public EventCallback<string?> ParseErrorChanged { get; set; }
+
+    [Parameter]
+    public int Order { get; set; } = 80;
+
+    /// <summary>Drops currently used in the document.</summary>
+    public IReadOnlyList<DetectedDrop> DetectedDrops => Editor.Document.DetectedDrops;
+
+    /// <summary>The current Liquid parse error, or null when the template parses.</summary>
+    public string? ParseError => _parseError;
+
+    protected override async Task OnEditorInitializedAsync()
+    {
+        _renderer = new LiquidContentRenderer(this);
+        _suggestionProvider = new LiquidSuggestionProvider(this);
+        _statusItem = new ToolbarItem { Id = "blaztext-liquid", Order = Order, Content = Status };
+
+        Editor.RegisterContentRenderer(_renderer);
+        Editor.RegisterSuggestionProvider(_suggestionProvider);
+        Editor.RegisterToolbarItem(_statusItem);
+        Editor.ContentChanged += OnContentChanged;
+
+        await AnalyzeAsync(Editor.Document.Content);
+    }
+
+    protected override ValueTask OnDisposingAsync()
+    {
+        Editor.ContentChanged -= OnContentChanged;
+
+        if (_renderer is not null)
+        {
+            Editor.UnregisterContentRenderer(_renderer);
+        }
+
+        if (_suggestionProvider is not null)
+        {
+            Editor.UnregisterSuggestionProvider(_suggestionProvider);
+        }
+
+        if (_statusItem is not null)
+        {
+            Editor.UnregisterToolbarItem(_statusItem);
+        }
+
+        return ValueTask.CompletedTask;
+    }
+
+    private async Task OnContentChanged(ContentChangedEventArgs args)
+    {
+        await AnalyzeAsync(args.Html);
+        StateHasChanged();
+    }
+
+    private async Task AnalyzeAsync(string content)
+    {
+        var detected = LiquidDropDetector.Detect(content);
+
+        if (!detected.Select(d => (d.Path, d.Occurrences))
+                .SequenceEqual(Editor.Document.DetectedDrops.Select(d => (d.Path, d.Occurrences))))
+        {
+            await Api.UpdateDocumentAsync(d => d.DetectedDrops = detected);
+            await DetectedDropsChanged.InvokeAsync(detected);
+        }
+
+        var parseError = Parser.TryParse(content, out _, out var error) ? null : error;
+
+        if (parseError != _parseError)
+        {
+            _parseError = parseError;
+            await ParseErrorChanged.InvokeAsync(parseError);
+        }
+    }
+
+    private IEnumerable<LiquidDropDefinition> KnownDrops =>
+        DropDefinitions ?? Drops.Keys.Select(k => new LiquidDropDefinition(k));
+
+    private RenderFragment Status => @<span style="display: contents">
+        @if (_parseError is not null)
+        {
+            <span class="blaztext-muted" role="alert" title="@_parseError">⚠ Liquid</span>
+        }
+    </span>;
+
+    private sealed class LiquidContentRenderer(LiquidPlugin plugin) : IContentRenderer
+    {
+        public int Order => 10;
+
+        public async Task<string> RenderAsync(string html, BlazTextDocument document)
+        {
+            var result = await BlazTextRenderer.RenderAsync(
+                new BlazTextDocument { Content = html },
+                new RenderOptions
+                {
+                    LiquidValues = plugin.Drops,
+                    ResolveImages = false,
+                });
+
+            return result.Html;
+        }
+    }
+
+    private sealed class LiquidSuggestionProvider(LiquidPlugin plugin) : ISuggestionProvider
+    {
+        public Task<SuggestionResult?> GetSuggestionsAsync(SuggestionRequest request)
+        {
+            var match = TriggerPattern.Match(request.TextBeforeCaret);
+
+            if (!match.Success)
+            {
+                return Task.FromResult<SuggestionResult?>(null);
+            }
+
+            var prefix = match.Groups["prefix"].Value;
+
+            var items = plugin.KnownDrops
+                .Where(d => d.Path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(d => d.Path, StringComparer.OrdinalIgnoreCase)
+                .Select(d => new Suggestion(d.Path, $"{d.Path} }}}}", d.Description))
+                .ToList();
+
+            return Task.FromResult<SuggestionResult?>(items.Count == 0 ? null : new SuggestionResult(items, prefix.Length));
+        }
+    }
+}

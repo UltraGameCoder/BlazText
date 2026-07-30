@@ -1,0 +1,198 @@
+@namespace BlazText.Html
+@inherits BlazTextPluginBase
+
+@code {
+    private ToolbarItem? _toolbarItem;
+    private EditorPanel? _sourcePanel;
+    private EditorPanel? _previewPanel;
+    private bool _sourceOpen;
+    private bool _previewOpen;
+    private string _source = string.Empty;
+    private string _previewHtml = string.Empty;
+    private HtmlValidationResult _validation = new();
+
+    /// <summary>Where the live HTML preview renders.</summary>
+    [Parameter]
+    public PanelPosition PreviewPosition { get; set; } = PanelPosition.Right;
+
+    /// <summary>Validate content on every change (not just while the source view is open).</summary>
+    [Parameter]
+    public bool AutoValidate { get; set; } = true;
+
+    [Parameter]
+    public int Order { get; set; } = 60;
+
+    /// <summary>Raised whenever the content was (re)validated.</summary>
+    [Parameter]
+    public EventCallback<HtmlValidationResult> ValidationChanged { get; set; }
+
+    /// <summary>The latest validation outcome.</summary>
+    public HtmlValidationResult Validation => _validation;
+
+    protected override async Task OnEditorInitializedAsync()
+    {
+        _toolbarItem = new ToolbarItem { Id = "blaztext-html", Order = Order, Content = Buttons };
+        _sourcePanel = new EditorPanel { Id = "blaztext-html-source", Order = 10, Position = PanelPosition.Bottom, Content = SourceView };
+        _previewPanel = new EditorPanel { Id = "blaztext-html-preview", Order = 10, Position = PreviewPosition, Content = Preview };
+
+        Editor.RegisterToolbarItem(_toolbarItem);
+        Editor.ContentChanged += OnContentChanged;
+
+        if (AutoValidate)
+        {
+            await ValidateAsync(Editor.Document.Content);
+        }
+    }
+
+    protected override ValueTask OnDisposingAsync()
+    {
+        Editor.ContentChanged -= OnContentChanged;
+
+        if (_toolbarItem is not null)
+        {
+            Editor.UnregisterToolbarItem(_toolbarItem);
+        }
+
+        SetPanel(_sourcePanel, register: false);
+        SetPanel(_previewPanel, register: false);
+        return ValueTask.CompletedTask;
+    }
+
+    private async Task OnContentChanged(ContentChangedEventArgs args)
+    {
+        if (AutoValidate || _sourceOpen)
+        {
+            await ValidateAsync(args.Html);
+        }
+
+        if (_previewOpen)
+        {
+            await RefreshPreviewAsync();
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task ValidateAsync(string html)
+    {
+        _validation = HtmlTooling.Validate(html);
+        await ValidationChanged.InvokeAsync(_validation);
+    }
+
+    private async Task ToggleSourceAsync()
+    {
+        _sourceOpen = !_sourceOpen;
+        SetPanel(_sourcePanel, _sourceOpen);
+
+        if (_sourceOpen)
+        {
+            _source = await Api.GetContentAsync();
+            await ValidateAsync(_source);
+        }
+    }
+
+    private async Task TogglePreviewAsync()
+    {
+        _previewOpen = !_previewOpen;
+        SetPanel(_previewPanel, _previewOpen);
+
+        if (_previewOpen)
+        {
+            await RefreshPreviewAsync();
+        }
+    }
+
+    private async Task RefreshPreviewAsync()
+    {
+        // Content renderers make the preview plugin-aware: with the Liquid plugin
+        // attached, the preview shows rendered output rather than raw syntax.
+        var html = await Editor.ApplyContentRenderersAsync();
+        html = ResolveImages(html);
+        _previewHtml = HtmlTooling.Sanitize(html);
+    }
+
+    private string ResolveImages(string html)
+    {
+        foreach (var image in Editor.Document.Images)
+        {
+            html = html.Replace(BlazTextImageUri.Create(image.Id), image.ToDataUri(), StringComparison.OrdinalIgnoreCase);
+        }
+
+        return html;
+    }
+
+    private void SetPanel(EditorPanel? panel, bool register)
+    {
+        if (panel is null)
+        {
+            return;
+        }
+
+        if (register && !Editor.Panels.Contains(panel))
+        {
+            Editor.RegisterPanel(panel);
+        }
+        else if (!register && Editor.Panels.Contains(panel))
+        {
+            Editor.UnregisterPanel(panel);
+        }
+    }
+
+    private async Task OnSourceInput(ChangeEventArgs e)
+    {
+        _source = e.Value?.ToString() ?? string.Empty;
+        await ValidateAsync(_source);
+    }
+
+    private Task ApplySourceAsync() => Api.SetContentAsync(_source);
+
+    private async Task FormatSourceAsync()
+    {
+        if (_sourceOpen)
+        {
+            _source = HtmlTooling.Format(_source);
+        }
+        else
+        {
+            await Api.SetContentAsync(HtmlTooling.Format(await Api.GetContentAsync()));
+        }
+    }
+
+    private RenderFragment Buttons => @<span style="display: contents">
+        <button type="button" class="blaztext-btn @(_sourceOpen ? "active" : null)" title="HTML source" @onclick="ToggleSourceAsync">&lt;/&gt;</button>
+        <button type="button" class="blaztext-btn" title="Format HTML" @onclick="FormatSourceAsync">⇥</button>
+        <button type="button" class="blaztext-btn @(_previewOpen ? "active" : null)" title="Preview" @onclick="TogglePreviewAsync">👁</button>
+        @if (!_validation.IsValid || _validation.Issues.Count > 0)
+        {
+            <span class="blaztext-muted" title="@string.Join("\n", _validation.Issues.Select(i => $"{i.Line}:{i.Column} {i.Message}"))">
+                ⚠ @_validation.Issues.Count
+            </span>
+        }
+    </span>;
+
+    private RenderFragment SourceView => @<div class="blaztext-html-source">
+        <textarea class="blaztext-html-source-input"
+                  spellcheck="false"
+                  value="@_source"
+                  @oninput="OnSourceInput"></textarea>
+        <div class="blaztext-html-source-actions">
+            <button type="button" class="blaztext-btn" @onclick="ApplySourceAsync">Apply</button>
+            <button type="button" class="blaztext-btn" @onclick="FormatSourceAsync">Format</button>
+        </div>
+        @if (_validation.Issues.Count > 0)
+        {
+            <ul class="blaztext-html-issues">
+                @foreach (var issue in _validation.Issues)
+                {
+                    <li class="blaztext-html-issue">
+                        <span class="blaztext-muted">@issue.Line:@issue.Column</span> @issue.Message
+                    </li>
+                }
+            </ul>
+        }
+    </div>;
+
+    private RenderFragment Preview => @<div class="blaztext-html-preview">
+        <iframe class="blaztext-html-preview-frame" sandbox="" title="HTML preview" srcdoc="@_previewHtml"></iframe>
+    </div>;
+}
