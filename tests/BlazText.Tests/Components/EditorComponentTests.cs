@@ -122,6 +122,23 @@ public class EditorComponentTests : TestContext
     }
 
     [Fact]
+    public void Disposing_a_plugin_survives_a_disconnected_circuit()
+    {
+        var module = JSInterop.SetupModule("./_content/BlazText/BlazTextEditor.razor.js");
+        module.Mode = JSRuntimeMode.Loose;
+        // SearchPlugin clears its highlights in OnDisposingAsync. On a circuit that is being
+        // torn down, that interop call reaches a browser which is already gone.
+        module.SetupVoid("clearHighlights", _ => true).SetException(new JSDisconnectedException("circuit gone"));
+
+        var cut = RenderComponent<BlazTextEditor>(p => p.AddChildContent<SearchPlugin>());
+        cut.WaitForAssertion(() => Assert.NotNull(cut.Find(".blaztext-toolbar input[type=search]")));
+
+        cut.SetParametersAndRender(p => p.AddChildContent(builder => { }));
+
+        cut.WaitForAssertion(() => Assert.Empty(cut.FindAll(".blaztext-toolbar")));
+    }
+
+    [Fact]
     public void Disposing_a_plugin_removes_its_toolbar_item()
     {
         var cut = RenderComponent<BlazTextEditor>(p => p.AddChildContent<BasicFormattingPlugin>());

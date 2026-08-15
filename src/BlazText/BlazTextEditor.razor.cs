@@ -314,9 +314,22 @@ public partial class BlazTextEditor : ComponentBase, IAsyncDisposable
 
         private async Task InvokeVoidAsync(string method, params object?[] args)
         {
-            if (editor._module is not null)
+            if (editor._module is null || editor._disposed)
+            {
+                return;
+            }
+
+            try
             {
                 await editor._module.InvokeVoidAsync(method, [editor._surface, .. args]);
+            }
+            catch (Exception e) when (e is JSDisconnectedException or ObjectDisposedException or OperationCanceledException)
+            {
+                // Plugins clean up through this API in OnDisposingAsync — SearchPlugin clears
+                // its highlights there — which on a torn-down circuit means talking to a
+                // browser that is already gone. Nothing a plugin can act on, and letting it
+                // escape would abort the rest of the component tree's disposal.
+                // A JSException (a genuine error inside the module) is deliberately not caught.
             }
         }
     }
