@@ -6,10 +6,17 @@ const states = new WeakMap();
 // CSS.highlights is a document-global registry, so highlight names must be unique per
 // editor — otherwise a search in one editor overwrites another editor's highlights, and
 // disposing one editor deletes the other's.
-let highlightSequence = 0;
+// Scoped to the document, not the module: if this module is ever evaluated twice in one page
+// (two Blazor roots, or a cache-busting query string) two module-level counters would both
+// start at zero and hand out colliding names again.
+function nextHighlightSequence() {
+    const key = "__blazTextHighlightSequence";
+    document[key] = (document[key] ?? 0) + 1;
+    return document[key];
+}
 
 export function init(el, dotnetRef) {
-    const highlightName = `blaztext-search-${++highlightSequence}`;
+    const highlightName = `blaztext-search-${nextHighlightSequence()}`;
     const state = {
         dotnetRef,
         interceptKeys: new Set(),
@@ -101,10 +108,24 @@ export function setContent(el, html, imageMap) {
     if (state) state.lastReported = getContent(el);
 }
 
+// setContent deliberately preserves <style> blocks for e-mail templates, but their text is not
+// document text. Including it made a search for "color" report a hit that nothing could
+// highlight or scroll to. Both the text and the range walk use this filter so offsets agree.
+const TEXT_NODE_FILTER = {
+    acceptNode(node) {
+        const tag = node.parentElement?.tagName;
+        return tag === "STYLE" || tag === "SCRIPT" ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+    },
+};
+
+function textWalker(el) {
+    return document.createTreeWalker(el, NodeFilter.SHOW_TEXT, TEXT_NODE_FILTER);
+}
+
 export function getPlainText(el) {
     // Concatenated text nodes, matching how highlightRanges indexes the text.
     let text = "";
-    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    const walker = textWalker(el);
     while (walker.nextNode()) text += walker.currentNode.nodeValue;
     return text;
 }
@@ -141,26 +162,31 @@ export function setInterceptKeys(el, keys) {
 
 // ---- search highlighting (CSS Custom Highlight API; no-op on unsupported browsers) ----
 
+// Returns how many ranges actually resolved, so the caller can tell that the DOM moved on
+// rather than displaying a match count nothing on screen corresponds to.
 export function highlightRanges(el, ranges, activeIndex) {
     const state = states.get(el);
-    if (!CSS.highlights || !state) return;
+    if (!CSS.highlights || !state) return 0;
     clearHighlights(el);
 
-    // A range fails to resolve when the DOM moved on since the plain text was read (the
-    // caller reads it in a separate interop call). Keep its slot anyway: activeIndex and
-    // scrollToHighlight index into the caller's range list, so the array must stay aligned.
-    const domRanges = ranges.map(r => rangeFromTextOffsets(el, r.start, r.length));
+    const domRanges = resolveRanges(el, ranges);
     state.searchRanges = domRanges;
 
     const resolved = domRanges.filter(r => r !== null);
-    if (resolved.length === 0) return;
+    if (resolved.length === 0) return 0;
 
-    CSS.highlights.set(state.highlightName, new Highlight(...resolved));
+    // Built incrementally rather than spread into the constructor: a document with more than
+    // ~65k matches would blow the argument limit and surface as an unhandled JSException.
+    const highlight = new Highlight();
+    for (const range of resolved) highlight.add(range);
+    CSS.highlights.set(state.highlightName, highlight);
 
     const active = activeIndex >= 0 && activeIndex < domRanges.length ? domRanges[activeIndex] : null;
     if (active) {
         CSS.highlights.set(state.highlightActiveName, new Highlight(active));
     }
+
+    return resolved.length;
 }
 
 export function clearHighlights(el) {
@@ -236,25 +262,48 @@ function insertHtmlAtCaret(el, html) {
     }
 }
 
-function rangeFromTextOffsets(el, start, length) {
-    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+// One walk for all ranges. Resolving them one at a time re-walked the whole text tree per
+// match, and this runs on every input event — O(matches x nodes) froze the UI on a large
+// template with a one-character query.
+//
+// A range that does not resolve keeps its slot as null: activeIndex and scrollToHighlight
+// index into the caller's list, so the array has to stay aligned with it.
+function resolveRanges(el, ranges) {
+    const resolved = new Array(ranges.length).fill(null);
+    const ordered = ranges
+        .map((r, index) => ({ index, start: r.start, end: r.start + r.length }))
+        .sort((a, b) => a.start - b.start);
+
+    const walker = textWalker(el);
     let position = 0;
-    let range = null;
-    const end = start + length;
+    let next = 0;
+    const open = [];
+
     while (walker.nextNode()) {
         const node = walker.currentNode;
         const nodeEnd = position + node.nodeValue.length;
-        if (!range && start >= position && start < nodeEnd) {
-            range = document.createRange();
-            range.setStart(node, start - position);
+
+        while (next < ordered.length && ordered[next].start < nodeEnd) {
+            const item = ordered[next++];
+            if (item.start >= position) {
+                const range = document.createRange();
+                range.setStart(node, item.start - position);
+                open.push({ item, range });
+            }
         }
-        if (range && end <= nodeEnd) {
-            range.setEnd(node, end - position);
-            return range;
+
+        for (let i = open.length - 1; i >= 0; i--) {
+            if (open[i].item.end <= nodeEnd) {
+                open[i].range.setEnd(node, open[i].item.end - position);
+                resolved[open[i].item.index] = open[i].range;
+                open.splice(i, 1);
+            }
         }
+
         position = nodeEnd;
     }
-    return null;
+
+    return resolved;
 }
 
 function sanitizeHtml(html) {
