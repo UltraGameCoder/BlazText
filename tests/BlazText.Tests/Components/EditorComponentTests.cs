@@ -2,15 +2,19 @@ using BlazText.Liquid;
 using BlazText.Models;
 using BlazText.Plugins;
 using Bunit;
+using Microsoft.AspNetCore.Components.Forms;
 
 namespace BlazText.Tests.Components;
 
 public class EditorComponentTests : TestContext
 {
+    private readonly BunitJSModuleInterop _module;
+
     public EditorComponentTests()
     {
         JSInterop.Mode = JSRuntimeMode.Loose;
-        JSInterop.SetupModule("./_content/BlazText/BlazTextEditor.razor.js").Mode = JSRuntimeMode.Loose;
+        _module = JSInterop.SetupModule("./_content/BlazText/BlazTextEditor.razor.js");
+        _module.Mode = JSRuntimeMode.Loose;
     }
 
     [Fact]
@@ -65,6 +69,24 @@ public class EditorComponentTests : TestContext
             Assert.Contains(document.DetectedDrops, d => d.Path == "user.name");
             Assert.Contains(document.DetectedDrops, d => d.Path == "company");
         });
+    }
+
+    [Fact]
+    public void Inserted_image_html_encodes_the_file_name()
+    {
+        var cut = RenderComponent<BlazTextEditor>(p => p.AddChildContent<ImagePlugin>());
+        var input = cut.FindComponent<InputFile>();
+
+        input.UploadFiles(InputFileContent.CreateFromBinary(
+            [1, 2, 3],
+            "a\" onerror=\"alert(1).png",
+            null,
+            "image/png"));
+
+        var html = (string)_module.Invocations["insertHtml"].Single().Arguments[1]!;
+
+        Assert.Contains("alt=\"a&quot; onerror=&quot;alert(1).png\"", html);
+        Assert.DoesNotContain("onerror=\"", html);
     }
 
     [Fact]

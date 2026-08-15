@@ -1,5 +1,6 @@
 @namespace BlazText.Plugins
 @inherits BlazTextPluginBase
+@using System.Net
 @using Microsoft.AspNetCore.Components.Forms
 
 @code {
@@ -71,8 +72,10 @@
 
         // The DOM shows the data: URI; getContent normalizes it back to blaztext:{id}
         // via the data-blaztext-id marker, so the stored document stays blob-free.
+        // The file name is attacker-controlled on any OS that allows quotes in it, so it is
+        // encoded before it lands in the alt attribute.
         await Api.InsertHtmlAtSelectionAsync(
-            $"<img data-blaztext-id=\"{image.Id}\" src=\"{image.ToDataUri()}\" alt=\"{file.Name}\">");
+            $"<img data-blaztext-id=\"{image.Id}\" src=\"{image.ToDataUri()}\" alt=\"{WebUtility.HtmlEncode(file.Name)}\">");
 
         await ImageInserted.InvokeAsync(image);
         Editor.RequestRefresh();
