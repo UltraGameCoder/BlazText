@@ -1,3 +1,5 @@
+using System.Buffers;
+
 namespace BlazText.Models;
 
 /// <summary>
@@ -17,6 +19,39 @@ public class EmbeddedImage
     /// <summary>Raw image bytes. System.Text.Json serializes this as base64.</summary>
     public byte[] Data { get; set; } = [];
 
-    /// <summary>The image as a data: URI, usable directly in an img src attribute.</summary>
-    public string ToDataUri() => $"data:{ContentType};base64,{Convert.ToBase64String(Data)}";
+    /// <summary>
+    /// The image as a data: URI, usable directly in an img src attribute. A <see cref="ContentType"/>
+    /// that is not a well-formed <c>image/*</c> type is replaced with a generic one rather than
+    /// emitted — see <see cref="IsImageContentType"/>.
+    /// </summary>
+    public string ToDataUri()
+    {
+        var contentType = IsImageContentType(ContentType) ? ContentType : FallbackContentType;
+        return $"data:{contentType};base64,{Convert.ToBase64String(Data)}";
+    }
+
+    private const string ContentTypePrefix = "image/";
+
+    private const string FallbackContentType = "application/octet-stream";
+
+    /// <summary>Characters allowed in a MIME subtype (the RFC 2045 token grammar).</summary>
+    private static readonly SearchValues<char> SubtypeCharacters = SearchValues.Create(
+        "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!#$&^_.+-");
+
+    /// <summary>
+    /// True when <paramref name="contentType"/> is a well-formed <c>image/*</c> MIME type.
+    /// The content type of an upload is supplied by the browser, and it is substituted into
+    /// document HTML by the renderer, so a value carrying a quote would break out of the
+    /// <c>src</c> attribute it lands in. Anything outside the token grammar is rejected.
+    /// </summary>
+    public static bool IsImageContentType(string? contentType)
+    {
+        if (contentType is null || !contentType.StartsWith(ContentTypePrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var subtype = contentType.AsSpan(ContentTypePrefix.Length);
+        return subtype.Length > 0 && !subtype.ContainsAnyExcept(SubtypeCharacters);
+    }
 }

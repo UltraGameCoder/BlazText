@@ -44,7 +44,10 @@
         _error = null;
         var file = e.File;
 
-        if (!file.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+        // A StartsWith("image/") check would accept `image/png" onerror="…`, and the content type
+        // is browser-supplied. It reaches a src attribute in the document, so it is validated
+        // against the MIME grammar rather than merely prefixed-matched.
+        if (!EmbeddedImage.IsImageContentType(file.ContentType))
         {
             _error = "Not an image file.";
             Editor.RequestRefresh();

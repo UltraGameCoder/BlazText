@@ -1,3 +1,4 @@
+using AngleSharp.Html.Parser;
 using BlazText.Liquid;
 using BlazText.Models;
 using BlazText.Plugins;
@@ -86,7 +87,44 @@ public class EditorComponentTests : TestContext
         var html = (string)_module.Invocations["insertHtml"].Single().Arguments[1]!;
 
         Assert.Contains("alt=\"a&quot; onerror=&quot;alert(1).png\"", html);
-        Assert.DoesNotContain("onerror=\"", html);
+        AssertNoEventHandlers(html);
+    }
+
+    [Fact]
+    public void Benign_file_name_survives_without_entity_noise()
+    {
+        var cut = RenderComponent<BlazTextEditor>(p => p.AddChildContent<ImagePlugin>());
+
+        cut.FindComponent<InputFile>().UploadFiles(
+            InputFileContent.CreateFromBinary([1], "my photo (1).png", null, "image/png"));
+
+        var html = (string)_module.Invocations["insertHtml"].Single().Arguments[1]!;
+
+        // Guards against someone swapping in an over-aggressive encoder.
+        Assert.Contains("alt=\"my photo (1).png\"", html);
+    }
+
+    [Fact]
+    public void Hostile_content_type_is_rejected_rather_than_emitted()
+    {
+        var cut = RenderComponent<BlazTextEditor>(p => p.AddChildContent<ImagePlugin>());
+
+        cut.FindComponent<InputFile>().UploadFiles(InputFileContent.CreateFromBinary(
+            [1], "ok.png", null, "image/png\" onerror=\"alert(1)"));
+
+        // A prefix check on "image/" accepts this; the upload must not reach the document at all.
+        Assert.Empty(_module.Invocations["insertHtml"]);
+        Assert.Equal("Not an image file.", cut.Find("[role=alert]").TextContent);
+    }
+
+    /// <summary>Parses the emitted HTML and asserts no element carries an on* handler.</summary>
+    private static void AssertNoEventHandlers(string html)
+    {
+        var document = new HtmlParser().ParseDocument($"<!DOCTYPE html><html><body>{html}</body></html>");
+
+        Assert.All(
+            document.QuerySelectorAll("*"),
+            e => Assert.DoesNotContain(e.Attributes, a => a.Name.StartsWith("on", StringComparison.OrdinalIgnoreCase)));
     }
 
     [Fact]
