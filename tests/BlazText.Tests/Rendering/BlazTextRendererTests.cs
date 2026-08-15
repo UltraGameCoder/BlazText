@@ -1,5 +1,6 @@
 using BlazText.Models;
 using BlazText.Rendering;
+using Fluid;
 
 namespace BlazText.Tests.Rendering;
 
@@ -41,6 +42,29 @@ public class BlazTextRendererTests
         var result = await BlazTextRenderer.RenderAsync(document, options);
 
         Assert.Equal("<html><body><p>Hello</p></body></html>", result.Html);
+    }
+
+    [Fact]
+    public async Task Supplied_liquid_context_is_not_mutated_by_a_render()
+    {
+        var context = new TemplateContext(new TemplateOptions { MemberAccessStrategy = UnsafeMemberAccessStrategy.Instance });
+
+        await BlazTextRenderer.RenderAsync(
+            new BlazTextDocument { Content = "<p>{{ greeting }}</p>" },
+            new RenderOptions
+            {
+                LiquidContext = context,
+                LiquidValues = { ["greeting"] = "Hello" },
+                LayoutContent = "<html>{{ body }}</html>",
+            });
+
+        // The caller's context is reusable: neither the values nor the layout's body
+        // variable may survive the render above and bleed into the next document.
+        var second = await BlazTextRenderer.RenderAsync(
+            new BlazTextDocument { Content = "<p>[{{ body }}][{{ greeting }}]</p>" },
+            new RenderOptions { LiquidContext = context });
+
+        Assert.Equal("<p>[][]</p>", second.Html);
     }
 
     [Fact]

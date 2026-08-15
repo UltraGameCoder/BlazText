@@ -54,20 +54,33 @@ public static class BlazTextRenderer
             return source;
         }
 
-        var context = options.LiquidContext
+        var suppliedContext = options.LiquidContext;
+        var context = suppliedContext
             ?? new TemplateContext(new TemplateOptions { MemberAccessStrategy = UnsafeMemberAccessStrategy.Instance });
 
-        foreach (var (name, value) in options.LiquidValues)
-        {
-            context.SetValue(name, value);
-        }
+        // A supplied context belongs to the caller and is meant to be reusable across renders,
+        // so this render's values go into a child scope. Without it, LiquidValues and the
+        // layout's body variable stay behind and leak into the next document's render.
+        suppliedContext?.EnterChildScope();
 
-        if (body is not null)
+        try
         {
-            context.SetValue(options.BodyVariableName, body);
-        }
+            foreach (var (name, value) in options.LiquidValues)
+            {
+                context.SetValue(name, value);
+            }
 
-        return await template.RenderAsync(context);
+            if (body is not null)
+            {
+                context.SetValue(options.BodyVariableName, body);
+            }
+
+            return await template.RenderAsync(context);
+        }
+        finally
+        {
+            suppliedContext?.ReleaseScope();
+        }
     }
 
     private static string ResolveImages(string html, IEnumerable<EmbeddedImage> images, Func<EmbeddedImage, string>? resolver)
