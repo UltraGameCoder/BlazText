@@ -31,11 +31,15 @@ export function init(el, dotnetRef) {
 
     el.addEventListener("paste", e => {
         e.preventDefault();
-        const html = e.clipboardData.getData("text/html");
-        const insert = html
-            ? sanitizeHtml(html)
-            : escapeHtml(e.clipboardData.getData("text/plain")).replaceAll("\n", "<br>");
-        insertHtmlAtCaret(el, insert);
+        const clipboard = e.clipboardData;
+        if (!clipboard) return;
+        const html = clipboard.getData("text/html");
+        if (html) {
+            // Insert the sanitized *nodes*, never a re-serialized string — see sanitizeToFragment.
+            insertFragmentAtCaret(el, sanitizeToFragment(html));
+        } else {
+            insertHtmlAtCaret(el, escapeHtml(clipboard.getData("text/plain")).replaceAll("\n", "<br>"));
+        }
         report(el);
     });
 
@@ -207,6 +211,14 @@ function caretRect(el) {
 }
 
 function insertHtmlAtCaret(el, html) {
+    insertAtCaret(el, range => range.createContextualFragment(html));
+}
+
+function insertFragmentAtCaret(el, fragment) {
+    insertAtCaret(el, () => fragment);
+}
+
+function insertAtCaret(el, makeFragment) {
     el.focus();
     const sel = window.getSelection();
     let range = sel && sel.rangeCount > 0 && el.contains(sel.anchorNode) ? sel.getRangeAt(0) : null;
@@ -216,7 +228,7 @@ function insertHtmlAtCaret(el, html) {
         range.collapse(false);
     }
     range.deleteContents();
-    const fragment = range.createContextualFragment(html);
+    const fragment = makeFragment(range);
     const lastNode = fragment.lastChild;
     range.insertNode(fragment);
     if (lastNode && sel) {
@@ -268,20 +280,58 @@ function isDangerousUrl(value) {
     return DANGEROUS_SCHEMES.some(scheme => normalized.startsWith(scheme));
 }
 
-function sanitizeHtml(html) {
+// Attribute values that are URL *lists* rather than a single URL, with their separator.
+// Checking one of these as a single string only ever inspects the first entry.
+const URL_LIST_SEPARATORS = { srcset: ",", ping: /\s+/ };
+
+function hasDangerousUrl(name, value) {
+    const separator = URL_LIST_SEPARATORS[name];
+    // isDangerousUrl only looks at the prefix, so a srcset descriptor needs no trimming.
+    return separator
+        ? value.split(separator).some(isDangerousUrl)
+        : isDangerousUrl(value);
+}
+
+// `style` is not a URL, it is CSS that can carry URLs through url(). Scheme-checking those is
+// defense in depth — modern browsers do not execute javascript: from CSS. Whether a sanitized
+// document may fetch *remote* url() at all is a policy question, not something this closes.
+function hasDangerousCss(value) {
+    for (const match of value.matchAll(/url\(\s*(['"]?)([^'")]*)\1\s*\)/gi)) {
+        if (isDangerousUrl(match[2])) return true;
+    }
+    return false;
+}
+
+// Returns sanitized nodes belonging to the live document — deliberately not a string.
+// DOMParser parses with the scripting flag OFF; the live document has it ON, and the two
+// disagree about <noscript>. Serializing back to a string and re-parsing it (as
+// createContextualFragment would) lets markup that was inert here become live there, so the
+// round trip is removed entirely rather than guarded. noscript/template are dropped anyway:
+// template content is a separate fragment that querySelectorAll never descends into.
+function sanitizeToFragment(html) {
     const doc = new DOMParser().parseFromString(html, "text/html");
-    for (const node of doc.querySelectorAll("script, style, link, meta, iframe, object, embed, form, input, button, base")) {
+    for (const node of doc.querySelectorAll(
+        "script, style, link, meta, iframe, object, embed, form, input, button, base, noscript, template")) {
         node.remove();
     }
     for (const node of doc.body.querySelectorAll("*")) {
         for (const attr of [...node.attributes]) {
             const name = attr.name.toLowerCase();
-            if (name.startsWith("on") || name === "srcdoc" || (URL_ATTRIBUTES.has(name) && isDangerousUrl(attr.value))) {
+            const dangerous = name.startsWith("on")
+                || name === "srcdoc"
+                || (name === "style" && hasDangerousCss(attr.value))
+                || (URL_ATTRIBUTES.has(name) && hasDangerousUrl(name, attr.value));
+            if (dangerous) {
                 node.removeAttribute(attr.name);
             }
         }
     }
-    return doc.body.innerHTML;
+
+    const fragment = document.createDocumentFragment();
+    for (const node of [...doc.body.childNodes]) {
+        fragment.appendChild(document.importNode(node, true));
+    }
+    return fragment;
 }
 
 function escapeHtml(text) {
