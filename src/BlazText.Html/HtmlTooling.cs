@@ -56,12 +56,36 @@ public static class HtmlTooling
     /// </summary>
     public static string Sanitize(string html)
     {
-        var parser = new HtmlParser();
+        // IsScripting must match the consumer's environment. The parser defaults to false, but a
+        // browser has scripting on and treats <noscript> as raw text — so with the default, a
+        // payload hidden inside what this parser reads as a <noscript> attribute round-trips
+        // unexamined and becomes live markup when the output is parsed again.
+        var parser = new HtmlParser(new HtmlParserOptions { IsScripting = true });
         var document = parser.ParseDocument($"<!DOCTYPE html><html><body>{html}</body></html>");
 
-        foreach (var element in document.QuerySelectorAll("script, iframe, object, embed, form, base, link, meta").ToList())
+        // template content lives in a separate DocumentFragment that QuerySelectorAll does not
+        // descend into, so it cannot be sanitized in place — drop it wholesale instead.
+        foreach (var element in document.QuerySelectorAll("script, iframe, object, embed, form, base, link, template").ToList())
         {
             element.Remove();
+        }
+
+        // Only http-equiv is dangerous (refresh redirects). charset and viewport are needed:
+        // EmailPreviewPlugin's mobile preview is meaningless without <meta name="viewport">.
+        foreach (var element in document.QuerySelectorAll("meta[http-equiv]").ToList())
+        {
+            element.Remove();
+        }
+
+        // <style> is kept for e-mail templates, but only in the HTML namespace. In the SVG
+        // namespace it is not a raw-text element, so entity-encoded text parses as a text node
+        // that AngleSharp then serializes back unescaped — turning inert input into live markup.
+        foreach (var element in document.QuerySelectorAll("style").ToList())
+        {
+            if (!string.Equals(element.NamespaceUri, HtmlNamespace, StringComparison.Ordinal))
+            {
+                element.Remove();
+            }
         }
 
         foreach (var element in document.QuerySelectorAll("*"))
@@ -71,7 +95,7 @@ public static class HtmlTooling
                 var name = attribute.Name;
                 var isEventHandler = name.StartsWith("on", StringComparison.OrdinalIgnoreCase);
                 var isSrcDoc = name.Equals("srcdoc", StringComparison.OrdinalIgnoreCase);
-                var isScriptUrl = UrlAttributes.Contains(name) && IsDangerousUrl(attribute.Value);
+                var isScriptUrl = UrlAttributes.Contains(name) && HasDangerousUrl(name, attribute.Value);
 
                 if (isEventHandler || isSrcDoc || isScriptUrl)
                 {
@@ -83,6 +107,8 @@ public static class HtmlTooling
         return document.Body!.InnerHtml;
     }
 
+    private const string HtmlNamespace = "http://www.w3.org/1999/xhtml";
+
     /// <summary>Attributes whose value a browser resolves as a URL.</summary>
     private static readonly HashSet<string> UrlAttributes = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -91,6 +117,21 @@ public static class HtmlTooling
 
     private static readonly string[] DangerousSchemes =
         ["javascript:", "vbscript:", "data:text/html", "data:application/xhtml"];
+
+    private static readonly char[] Whitespace = [' ', '\t', '\n', '\r', '\f'];
+
+    /// <summary>
+    /// Checks an attribute value against its own grammar. Most URL attributes hold a single URL,
+    /// but <c>srcset</c> is a comma-separated candidate list and <c>ping</c> a space-separated
+    /// one — checking those as a single string only ever inspects the first entry.
+    /// </summary>
+    private static bool HasDangerousUrl(string name, string value) => name.ToLowerInvariant() switch
+    {
+        // IsDangerousUrl only looks at the prefix, so the trailing descriptor needs no trimming.
+        "srcset" => value.Split(',').Any(IsDangerousUrl),
+        "ping" => value.Split(Whitespace, StringSplitOptions.RemoveEmptyEntries).Any(IsDangerousUrl),
+        _ => IsDangerousUrl(value),
+    };
 
     private static bool IsDangerousUrl(string value)
     {

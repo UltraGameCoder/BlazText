@@ -1,3 +1,4 @@
+using AngleSharp.Html.Parser;
 using BlazText.Html;
 
 namespace BlazText.Tests.Html;
@@ -75,7 +76,56 @@ public class HtmlToolingTests
             "<link rel=\"stylesheet\" href=\"https://attacker.example/x.css\"><meta http-equiv=\"refresh\" content=\"0\"><p>Hi</p>");
 
         Assert.DoesNotContain("<link", sanitized);
-        Assert.DoesNotContain("<meta", sanitized);
+        Assert.DoesNotContain("http-equiv", sanitized);
         Assert.Contains("<p>Hi</p>", sanitized);
+    }
+
+    [Fact]
+    public void Sanitize_keeps_meta_that_the_email_preview_depends_on()
+    {
+        var sanitized = HtmlTooling.Sanitize(
+            "<meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><p>Hi</p>");
+
+        // EmailPreviewPlugin renders a 375px-wide mobile preview; without the viewport meta it
+        // no longer reflects the sent e-mail, which is the fidelity that plugin exists for.
+        Assert.Contains("viewport", sanitized);
+        Assert.Contains("charset", sanitized);
+    }
+
+    [Theory]
+    // mXSS: markup that is inert as parsed here, but becomes live when the output is parsed
+    // again by a browser. Grepping the output string is not enough to catch these — the
+    // assertion has to re-parse the way a consumer would.
+    [InlineData("<noscript><p title=\"</noscript><img src=x onerror=alert(1)>\">x</p></noscript>")]
+    [InlineData("<svg><style>&lt;/style&gt;&lt;img src=x onerror=alert(1)&gt;</style></svg>")]
+    [InlineData("<template><script>alert(1)</script><img src=\"x\" onerror=\"alert(1)\"></template>")]
+    [InlineData("<template><template><img src=\"x\" onerror=\"alert(1)\"></template></template>")]
+    public void Sanitize_output_is_inert_when_reparsed_by_a_browser(string html)
+    {
+        var sanitized = HtmlTooling.Sanitize(html);
+
+        var reparsed = new HtmlParser(new HtmlParserOptions { IsScripting = true })
+            .ParseDocument($"<!DOCTYPE html><html><body>{sanitized}</body></html>");
+
+        Assert.Empty(reparsed.QuerySelectorAll("script"));
+        Assert.All(
+            reparsed.QuerySelectorAll("*"),
+            e => Assert.DoesNotContain(e.Attributes, a => a.Name.StartsWith("on", StringComparison.OrdinalIgnoreCase)));
+
+        // QuerySelectorAll does not descend into a template's content fragment, so the two
+        // assertions above are blind to anything hidden in one. The element has to be gone.
+        Assert.Empty(reparsed.QuerySelectorAll("template"));
+    }
+
+    [Theory]
+    // srcset is a comma-separated candidate list and ping a space-separated one, so a payload
+    // in any position but the first is invisible to a whole-value prefix check.
+    [InlineData("<img srcset=\"ok.png 1x, javascript:alert(1) 2x\">")]
+    [InlineData("<a ping=\"https://ok.example javascript:alert(1)\" href=\"#\">x</a>")]
+    public void Sanitize_checks_every_candidate_in_a_url_list(string html)
+    {
+        var sanitized = HtmlTooling.Sanitize(html);
+
+        Assert.DoesNotContain("javascript:", sanitized, StringComparison.OrdinalIgnoreCase);
     }
 }
