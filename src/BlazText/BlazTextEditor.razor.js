@@ -3,12 +3,13 @@
 
 const states = new WeakMap();
 
-const HIGHLIGHT_NAME = "blaztext-search";
-const HIGHLIGHT_ACTIVE_NAME = "blaztext-search-active";
-
-injectHighlightStyles();
+// CSS.highlights is a document-global registry, so highlight names must be unique per
+// editor — otherwise a search in one editor overwrites another editor's highlights, and
+// disposing one editor deletes the other's.
+let highlightSequence = 0;
 
 export function init(el, dotnetRef) {
+    const highlightName = `blaztext-search-${++highlightSequence}`;
     const state = {
         dotnetRef,
         interceptKeys: new Set(),
@@ -16,8 +17,12 @@ export function init(el, dotnetRef) {
         searchRanges: [],
         selectionTimer: 0,
         onSelectionChange: null,
+        highlightName,
+        highlightActiveName: `${highlightName}-active`,
+        highlightStyleId: `${highlightName}-styles`,
     };
     states.set(el, state);
+    injectHighlightStyles(state);
 
     el.addEventListener("input", () => report(el));
 
@@ -60,6 +65,7 @@ export function dispose(el) {
     document.removeEventListener("selectionchange", state.onSelectionChange);
     clearTimeout(state.selectionTimer);
     clearHighlights(el);
+    document.getElementById(state.highlightStyleId)?.remove();
     states.delete(el);
 }
 
@@ -136,30 +142,33 @@ export function setInterceptKeys(el, keys) {
 // ---- search highlighting (CSS Custom Highlight API; no-op on unsupported browsers) ----
 
 export function highlightRanges(el, ranges, activeIndex) {
-    if (!CSS.highlights) return;
+    const state = states.get(el);
+    if (!CSS.highlights || !state) return;
     clearHighlights(el);
 
-    const state = states.get(el);
-    const domRanges = [];
-    for (const r of ranges) {
-        const domRange = rangeFromTextOffsets(el, r.start, r.length);
-        if (domRange) domRanges.push(domRange);
-    }
-    if (state) state.searchRanges = domRanges;
-    if (domRanges.length === 0) return;
+    // A range fails to resolve when the DOM moved on since the plain text was read (the
+    // caller reads it in a separate interop call). Keep its slot anyway: activeIndex and
+    // scrollToHighlight index into the caller's range list, so the array must stay aligned.
+    const domRanges = ranges.map(r => rangeFromTextOffsets(el, r.start, r.length));
+    state.searchRanges = domRanges;
 
-    CSS.highlights.set(HIGHLIGHT_NAME, new Highlight(...domRanges));
-    if (activeIndex >= 0 && activeIndex < domRanges.length) {
-        CSS.highlights.set(HIGHLIGHT_ACTIVE_NAME, new Highlight(domRanges[activeIndex]));
+    const resolved = domRanges.filter(r => r !== null);
+    if (resolved.length === 0) return;
+
+    CSS.highlights.set(state.highlightName, new Highlight(...resolved));
+
+    const active = activeIndex >= 0 && activeIndex < domRanges.length ? domRanges[activeIndex] : null;
+    if (active) {
+        CSS.highlights.set(state.highlightActiveName, new Highlight(active));
     }
 }
 
 export function clearHighlights(el) {
-    if (!CSS.highlights) return;
-    CSS.highlights.delete(HIGHLIGHT_NAME);
-    CSS.highlights.delete(HIGHLIGHT_ACTIVE_NAME);
     const state = states.get(el);
-    if (state) state.searchRanges = [];
+    if (!CSS.highlights || !state) return;
+    CSS.highlights.delete(state.highlightName);
+    CSS.highlights.delete(state.highlightActiveName);
+    state.searchRanges = [];
 }
 
 export function scrollToHighlight(el, index) {
@@ -270,12 +279,13 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
-function injectHighlightStyles() {
-    if (document.getElementById("blaztext-highlight-styles")) return;
+function injectHighlightStyles(state) {
+    // One style element per editor, removed again on dispose, so the highlight names and
+    // their rules have exactly the same lifetime.
     const style = document.createElement("style");
-    style.id = "blaztext-highlight-styles";
+    style.id = state.highlightStyleId;
     style.textContent = `
-::highlight(${HIGHLIGHT_NAME}) { background-color: var(--blaztext-highlight-bg, #ffe58f); }
-::highlight(${HIGHLIGHT_ACTIVE_NAME}) { background-color: var(--blaztext-highlight-active-bg, #ff9c6e); }`;
+::highlight(${state.highlightName}) { background-color: var(--blaztext-highlight-bg, #ffe58f); }
+::highlight(${state.highlightActiveName}) { background-color: var(--blaztext-highlight-active-bg, #ff9c6e); }`;
     document.head.appendChild(style);
 }
