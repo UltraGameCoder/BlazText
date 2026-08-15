@@ -138,6 +138,85 @@ public class EditorComponentTests : TestContext
         cut.WaitForAssertion(() => Assert.Empty(cut.FindAll(".blaztext-toolbar")));
     }
 
+    [Theory]
+    // The value-returning members bypassed the guarded helper entirely, and docs/extending.md
+    // presents GetContentAsync/SetContentAsync as *the* plugin surface.
+    [InlineData("getContent")]
+    [InlineData("getPlainText")]
+    [InlineData("setContent")]
+    [InlineData("clearHighlights")]
+    public async Task Api_calls_on_a_dead_circuit_do_not_throw(string method)
+    {
+        var module = JSInterop.SetupModule("./_content/BlazText/BlazTextEditor.razor.js");
+        module.Mode = JSRuntimeMode.Loose;
+        module.Setup<string>(method, _ => true).SetException(new JSDisconnectedException("circuit gone"));
+        module.SetupVoid(method, _ => true).SetException(new JSDisconnectedException("circuit gone"));
+
+        var cut = RenderComponent<BlazTextEditor>();
+        var api = cut.Instance.Api;
+
+        await (method switch
+        {
+            "getContent" => api.GetContentAsync(),
+            "getPlainText" => api.GetPlainTextAsync(),
+            "setContent" => api.SetContentAsync("<p>x</p>"),
+            _ => api.ClearHighlightsAsync(),
+        });
+    }
+
+    [Fact]
+    public async Task Api_falls_back_to_the_known_content_when_the_circuit_is_gone()
+    {
+        var module = JSInterop.SetupModule("./_content/BlazText/BlazTextEditor.razor.js");
+        module.Mode = JSRuntimeMode.Loose;
+        module.Setup<string>("getContent", _ => true).SetException(new JSDisconnectedException("circuit gone"));
+
+        var document = new BlazTextDocument { Content = "<p>known</p>" };
+        var cut = RenderComponent<BlazTextEditor>(p => p.Add(e => e.Document, document));
+
+        Assert.Equal("<p>known</p>", await cut.Instance.Api.GetContentAsync());
+    }
+
+    [Fact]
+    public async Task A_module_error_on_a_live_circuit_still_surfaces()
+    {
+        var module = JSInterop.SetupModule("./_content/BlazText/BlazTextEditor.razor.js");
+        module.Mode = JSRuntimeMode.Loose;
+        module.SetupVoid("applyFormat", _ => true).SetException(new JSException("bug in the module"));
+
+        var cut = RenderComponent<BlazTextEditor>();
+
+        // An explicit design commitment: a genuine module bug is not a disconnect, and this
+        // pins it so a later widening to catch (Exception) cannot pass CI silently.
+        await Assert.ThrowsAsync<JSException>(() => cut.Instance.Api.ApplyFormatAsync("bold"));
+    }
+
+    [Fact]
+    public async Task A_timed_out_call_on_a_live_circuit_still_surfaces()
+    {
+        var module = JSInterop.SetupModule("./_content/BlazText/BlazTextEditor.razor.js");
+        module.Mode = JSRuntimeMode.Loose;
+        module.SetupVoid("applyFormat", _ => true).SetException(new TaskCanceledException());
+
+        var cut = RenderComponent<BlazTextEditor>();
+
+        // The interop timeout fires on a slow-but-alive browser. Absorbing it outside teardown
+        // would turn a congested circuit into an unbounded silent no-op.
+        await Assert.ThrowsAsync<TaskCanceledException>(() => cut.Instance.Api.ApplyFormatAsync("bold"));
+    }
+
+    [Fact]
+    public async Task Api_calls_after_disposal_are_skipped()
+    {
+        var cut = RenderComponent<BlazTextEditor>();
+        var api = cut.Instance.Api;
+        await cut.Instance.DisposeAsync();
+
+        // Exercises the _disposed fast path rather than the catch: no interop is attempted.
+        await api.ApplyFormatAsync("bold");
+        Assert.Equal(string.Empty, await api.GetPlainTextAsync());
+    }
+
     [Fact]
     public void Disposing_a_plugin_removes_its_toolbar_item()
     {
