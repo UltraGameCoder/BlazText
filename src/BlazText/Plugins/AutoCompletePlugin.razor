@@ -35,9 +35,15 @@
     private int _querySequence;
     private IDisposable? _keyInterception;
 
-    /// <summary>Caps how many suggestions the popup shows.</summary>
+    /// <summary>Caps how many suggestions the popup shows. Must be greater than zero.</summary>
     [Parameter]
     public int MaxItems { get; set; } = 8;
+
+    protected override void OnParametersSet() =>
+        // A misconfigured cap (typically a binding that resolved to default(int)) would otherwise
+        // make autocomplete silently never appear — indistinguishable from "no provider matched",
+        // with nothing to grep for. Fail loudly at the point the mistake was made.
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(MaxItems);
 
     protected override Task OnEditorInitializedAsync()
     {
@@ -88,10 +94,12 @@
     {
         var items = result.Items.Take(MaxItems).ToList();
 
-        if (items.Count == 0)
+        // Two ways to end up flagged open but rendering nothing: the render guard needs a caret
+        // (caretRect returns null whenever the selection is outside the surface), and an empty
+        // list draws no items. Either way the popup would still intercept all five keys while
+        // invisible — and Enter would commit a suggestion the user never saw.
+        if (caret is null || items.Count == 0)
         {
-            // MaxItems is developer-supplied and may be zero or negative. An open popup with
-            // no items would still intercept the arrow keys and then divide by _items.Count.
             Close();
             StateHasChanged();
             return;

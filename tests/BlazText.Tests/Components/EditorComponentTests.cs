@@ -7,10 +7,13 @@ namespace BlazText.Tests.Components;
 
 public class EditorComponentTests : TestContext
 {
+    private readonly BunitJSModuleInterop _module;
+
     public EditorComponentTests()
     {
         JSInterop.Mode = JSRuntimeMode.Loose;
-        JSInterop.SetupModule("./_content/BlazText/BlazTextEditor.razor.js").Mode = JSRuntimeMode.Loose;
+        _module = JSInterop.SetupModule("./_content/BlazText/BlazTextEditor.razor.js");
+        _module.Mode = JSRuntimeMode.Loose;
     }
 
     [Fact]
@@ -67,26 +70,65 @@ public class EditorComponentTests : TestContext
         });
     }
 
-    [Fact]
-    public async Task Autocomplete_with_a_non_positive_item_cap_stays_closed()
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    [InlineData(int.MinValue)]
+    public void Autocomplete_rejects_a_non_positive_item_cap(int maxItems)
     {
-        var cut = RenderComponent<BlazTextEditor>(p => p
-            .AddChildContent<AutoCompletePlugin>(a => a.Add(x => x.MaxItems, 0)));
-
-        await cut.InvokeAsync(() => cut.Instance.Context.RegisterSuggestionProvider(new StubSuggestionProvider()));
-        await cut.InvokeAsync(() => cut.Instance.NotifyContentChangedAsync("<p>us</p>", "us", new CaretRect(10, 10, 20)));
-
-        // Without the guard the popup opens with zero items, still intercepts the arrow keys,
-        // and then divides by _items.Count.
-        await cut.InvokeAsync(() => cut.Instance.NotifyKeyInterceptedAsync("ArrowDown"));
-
-        Assert.Empty(cut.FindAll(".blaztext-autocomplete"));
+        // Silently showing nothing is worse to debug than a loud failure at the point of the
+        // mistake, so the misconfiguration is rejected rather than absorbed.
+        Assert.Throws<ArgumentOutOfRangeException>(() => RenderComponent<BlazTextEditor>(p => p
+            .AddChildContent<AutoCompletePlugin>(a => a.Add(x => x.MaxItems, maxItems))));
     }
 
-    private sealed class StubSuggestionProvider : ISuggestionProvider
+    [Fact]
+    public async Task Autocomplete_without_a_caret_does_not_intercept_keys()
+    {
+        var cut = RenderComponent<BlazTextEditor>(p => p.AddChildContent<AutoCompletePlugin>());
+
+        await cut.InvokeAsync(() => cut.Instance.Context.RegisterSuggestionProvider(new StubSuggestionProvider()));
+        // caretRect() returns null whenever the selection sits outside the editing surface.
+        await cut.InvokeAsync(() => cut.Instance.NotifyContentChangedAsync("<p>us</p>", "us", null));
+
+        // Popup absence alone is too weak an assertion: an invisible-but-intercepting popup
+        // satisfies it. Assert that no keys were handed to the browser for interception.
+        Assert.Empty(cut.FindAll(".blaztext-autocomplete"));
+        Assert.All(
+            _module.Invocations["setInterceptKeys"],
+            i => Assert.Empty((string[])i.Arguments[1]!));
+
+        // And that Enter cannot commit an item the user never saw.
+        await cut.InvokeAsync(() => cut.Instance.NotifyKeyInterceptedAsync("Enter"));
+        Assert.Empty(_module.Invocations["replaceTextBeforeCaret"]);
+    }
+
+    [Fact]
+    public async Task Autocomplete_arrow_keys_wrap_around_the_item_list()
+    {
+        var cut = RenderComponent<BlazTextEditor>(p => p.AddChildContent<AutoCompletePlugin>());
+
+        await cut.InvokeAsync(() => cut.Instance.Context.RegisterSuggestionProvider(
+            new StubSuggestionProvider("a", "b", "c")));
+        await cut.InvokeAsync(() => cut.Instance.NotifyContentChangedAsync("<p>us</p>", "us", new CaretRect(10, 10, 20)));
+
+        // The modulo arithmetic the crash guard protects is otherwise untested.
+        Assert.Equal("a", ActiveItem());
+        await cut.InvokeAsync(() => cut.Instance.NotifyKeyInterceptedAsync("ArrowDown"));
+        Assert.Equal("b", ActiveItem());
+        await cut.InvokeAsync(() => cut.Instance.NotifyKeyInterceptedAsync("ArrowUp"));
+        await cut.InvokeAsync(() => cut.Instance.NotifyKeyInterceptedAsync("ArrowUp"));
+        Assert.Equal("c", ActiveItem());
+
+        string ActiveItem() => cut.Find(".blaztext-autocomplete-item.active").TextContent.Trim();
+    }
+
+    private sealed class StubSuggestionProvider(params string[] labels) : ISuggestionProvider
     {
         public Task<SuggestionResult?> GetSuggestionsAsync(SuggestionRequest request) =>
-            Task.FromResult<SuggestionResult?>(new SuggestionResult([new Suggestion("user", "user")], 2));
+            Task.FromResult<SuggestionResult?>(new SuggestionResult(
+                (labels.Length > 0 ? labels : ["user"]).Select(l => new Suggestion(l, l)).ToList(),
+                2));
     }
 
     [Fact]
