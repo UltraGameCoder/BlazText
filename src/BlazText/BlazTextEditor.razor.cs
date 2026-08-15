@@ -176,21 +176,25 @@ public partial class BlazTextEditor : ComponentBase, IAsyncDisposable
         _disposed = true;
         _context.Changed -= OnContextChanged;
 
-        if (_module is not null)
+        try
         {
-            try
+            if (_module is not null)
             {
                 await _module.InvokeVoidAsync("dispose", _surface);
                 await _module.DisposeAsync();
             }
-            catch (JSDisconnectedException)
-            {
-                // The browser context is gone; nothing left to clean up.
-            }
         }
-
-        _selfRef?.Dispose();
-        GC.SuppressFinalize(this);
+        catch (Exception e) when (e is JSDisconnectedException or JSException or ObjectDisposedException or OperationCanceledException)
+        {
+            // The browser context is gone: the circuit dropped, the tab closed, or the JS
+            // runtime was disposed ahead of the component tree. Nothing left to clean up
+            // over there — but _selfRef below still has to be released on this side.
+        }
+        finally
+        {
+            _selfRef?.Dispose();
+            GC.SuppressFinalize(this);
+        }
     }
 
     private sealed class ApiImplementation(BlazTextEditor editor) : EditorApi

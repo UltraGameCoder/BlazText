@@ -68,6 +68,20 @@ public class EditorComponentTests : TestContext
     }
 
     [Fact]
+    public async Task Disposing_the_editor_survives_a_failing_js_teardown()
+    {
+        var module = JSInterop.SetupModule("./_content/BlazText/BlazTextEditor.razor.js");
+        module.Mode = JSRuntimeMode.Loose;
+        // Circuit teardown can dispose the JS runtime before the component tree, and that
+        // does not surface as JSDisconnectedException.
+        module.SetupVoid("dispose", _ => true).SetException(new ObjectDisposedException("JSRuntime"));
+
+        var cut = RenderComponent<BlazTextEditor>();
+
+        await cut.Instance.DisposeAsync();
+    }
+
+    [Fact]
     public void Disposing_a_plugin_removes_its_toolbar_item()
     {
         var cut = RenderComponent<BlazTextEditor>(p => p.AddChildContent<BasicFormattingPlugin>());
