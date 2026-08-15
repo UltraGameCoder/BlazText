@@ -23,6 +23,15 @@
     [Parameter]
     public string? LayoutContent { get; set; }
 
+    /// <summary>
+    /// Values used to render Liquid in <see cref="LayoutContent"/>, keyed by drop name. The layout
+    /// is a Liquid template, so pass the same drops as <c>LiquidPlugin</c> (and as the backend's
+    /// <see cref="RenderOptions.LiquidValues"/>) or its drops render empty. Drops inside the
+    /// document itself are already resolved by the Liquid plugin's content renderer.
+    /// </summary>
+    [Parameter]
+    public Dictionary<string, object?> Drops { get; set; } = [];
+
     /// <summary>Preview width in the mobile preset, in CSS pixels.</summary>
     [Parameter]
     public int MobileWidth { get; set; } = 375;
@@ -96,6 +105,7 @@
             {
                 RenderLiquid = false,
                 LayoutContent = LayoutContent,
+                LiquidValues = Drops,
                 InlineCss = true,
             });
 
