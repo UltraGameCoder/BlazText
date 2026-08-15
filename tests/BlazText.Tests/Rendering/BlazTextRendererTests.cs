@@ -44,27 +44,86 @@ public class BlazTextRendererTests
         Assert.Equal("<html><body><p>Hello</p></body></html>", result.Html);
     }
 
+    private static TemplateContext NewContext() =>
+        new(new TemplateOptions { MemberAccessStrategy = UnsafeMemberAccessStrategy.Instance });
+
     [Fact]
-    public async Task Supplied_liquid_context_is_not_mutated_by_a_render()
+    public async Task Values_do_not_leak_from_one_render_into_the_next()
     {
-        var context = new TemplateContext(new TemplateOptions { MemberAccessStrategy = UnsafeMemberAccessStrategy.Instance });
+        var options = new RenderOptions { LiquidContextFactory = NewContext };
 
         await BlazTextRenderer.RenderAsync(
             new BlazTextDocument { Content = "<p>{{ greeting }}</p>" },
             new RenderOptions
             {
-                LiquidContext = context,
+                LiquidContextFactory = options.LiquidContextFactory,
                 LiquidValues = { ["greeting"] = "Hello" },
                 LayoutContent = "<html>{{ body }}</html>",
             });
 
-        // The caller's context is reusable: neither the values nor the layout's body
-        // variable may survive the render above and bleed into the next document.
+        // Neither the values nor the layout's body variable may survive the render above.
         var second = await BlazTextRenderer.RenderAsync(
             new BlazTextDocument { Content = "<p>[{{ body }}][{{ greeting }}]</p>" },
-            new RenderOptions { LiquidContext = context });
+            options);
 
         Assert.Equal("<p>[][]</p>", second.Html);
+    }
+
+    [Fact]
+    public async Task Layout_only_render_does_not_retain_the_body_variable()
+    {
+        var options = new RenderOptions
+        {
+            LiquidContextFactory = NewContext,
+            RenderLiquid = false,
+            LayoutContent = "<html>{{ body }}</html>",
+        };
+
+        await BlazTextRenderer.RenderAsync(new BlazTextDocument { Content = "<p>secret</p>" }, options);
+
+        var second = await BlazTextRenderer.RenderAsync(
+            new BlazTextDocument { Content = "<p>[{{ body }}]</p>" },
+            new RenderOptions { LiquidContextFactory = options.LiquidContextFactory });
+
+        Assert.Equal("<p>[]</p>", second.Html);
+    }
+
+    [Fact]
+    public async Task Concurrent_renders_do_not_leak_between_documents()
+    {
+        // The bulk-mail pattern: many overlapping renders sharing one configuration. A context
+        // shared across them cannot stay isolated, however carefully its scopes are managed.
+        var results = await Task.WhenAll(Enumerable.Range(0, 200).Select(i => Task.Run(async () =>
+        {
+            var result = await BlazTextRenderer.RenderAsync(
+                new BlazTextDocument { Content = "<p>{{ recipient }}</p>" },
+                new RenderOptions
+                {
+                    LiquidContextFactory = NewContext,
+                    LayoutContent = "<html>{{ body }}</html>",
+                    LiquidValues = { ["recipient"] = $"user{i}" },
+                });
+
+            return (Index: i, result.Html);
+        })));
+
+        Assert.All(results, r => Assert.Equal($"<html><p>user{r.Index}</p></html>", r.Html));
+    }
+
+    [Fact]
+    public async Task Context_factory_is_invoked_once_per_liquid_pass()
+    {
+        var invocations = 0;
+        var options = new RenderOptions
+        {
+            LiquidContextFactory = () => { invocations++; return NewContext(); },
+            LayoutContent = "<html>{{ body }}</html>",
+        };
+
+        await BlazTextRenderer.RenderAsync(new BlazTextDocument { Content = "<p>hi</p>" }, options);
+
+        // Content pass and layout pass, each with its own context — never a reused one.
+        Assert.Equal(2, invocations);
     }
 
     [Fact]

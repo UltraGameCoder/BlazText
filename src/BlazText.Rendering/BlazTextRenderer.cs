@@ -54,33 +54,24 @@ public static class BlazTextRenderer
             return source;
         }
 
-        var suppliedContext = options.LiquidContext;
-        var context = suppliedContext
+        // Rendering writes into the context, so every render gets its own. Scoping the writes on
+        // a shared context instead would only hold sequentially: scope push/pop is stack
+        // discipline, and two overlapping renders do not release in LIFO order — one render's
+        // release pops the other's scope, and the values fall through to the wrong document.
+        var context = options.LiquidContextFactory?.Invoke()
             ?? new TemplateContext(new TemplateOptions { MemberAccessStrategy = UnsafeMemberAccessStrategy.Instance });
 
-        // A supplied context belongs to the caller and is meant to be reusable across renders,
-        // so this render's values go into a child scope. Without it, LiquidValues and the
-        // layout's body variable stay behind and leak into the next document's render.
-        suppliedContext?.EnterChildScope();
-
-        try
+        foreach (var (name, value) in options.LiquidValues)
         {
-            foreach (var (name, value) in options.LiquidValues)
-            {
-                context.SetValue(name, value);
-            }
-
-            if (body is not null)
-            {
-                context.SetValue(options.BodyVariableName, body);
-            }
-
-            return await template.RenderAsync(context);
+            context.SetValue(name, value);
         }
-        finally
+
+        if (body is not null)
         {
-            suppliedContext?.ReleaseScope();
+            context.SetValue(options.BodyVariableName, body);
         }
+
+        return await template.RenderAsync(context);
     }
 
     private static string ResolveImages(string html, IEnumerable<EmbeddedImage> images, Func<EmbeddedImage, string>? resolver)
