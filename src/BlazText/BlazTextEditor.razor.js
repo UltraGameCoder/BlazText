@@ -248,6 +248,26 @@ function rangeFromTextOffsets(el, start, length) {
     return null;
 }
 
+// Attributes whose value is a URL. A browser strips whitespace, control characters and
+// zero-width characters out of a URL before resolving its scheme, so the value has to be
+// normalized the same way first — otherwise "java&#9;script:" walks past a startsWith check.
+const URL_ATTRIBUTES = new Set([
+    "href", "src", "xlink:href", "action", "formaction", "data", "poster", "background", "srcset", "ping",
+]);
+
+const DANGEROUS_SCHEMES = ["javascript:", "vbscript:", "data:text/html", "data:application/xhtml"];
+
+function isDangerousUrl(value) {
+    let normalized = "";
+    for (const ch of value ?? "") {
+        const code = ch.codePointAt(0);
+        const isNoise = code <= 0x20 || code === 0x7f || (code >= 0x200b && code <= 0x200d) || code === 0xfeff;
+        if (!isNoise) normalized += ch;
+    }
+    normalized = normalized.toLowerCase();
+    return DANGEROUS_SCHEMES.some(scheme => normalized.startsWith(scheme));
+}
+
 function sanitizeHtml(html) {
     const doc = new DOMParser().parseFromString(html, "text/html");
     for (const node of doc.querySelectorAll("script, style, link, meta, iframe, object, embed, form, input, button, base")) {
@@ -256,7 +276,7 @@ function sanitizeHtml(html) {
     for (const node of doc.body.querySelectorAll("*")) {
         for (const attr of [...node.attributes]) {
             const name = attr.name.toLowerCase();
-            if (name.startsWith("on") || ((name === "href" || name === "src") && attr.value.trim().toLowerCase().startsWith("javascript:"))) {
+            if (name.startsWith("on") || name === "srcdoc" || (URL_ATTRIBUTES.has(name) && isDangerousUrl(attr.value))) {
                 node.removeAttribute(attr.name);
             }
         }
