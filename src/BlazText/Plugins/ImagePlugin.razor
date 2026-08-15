@@ -6,7 +6,15 @@
     private ToolbarItem? _item;
     private string? _error;
 
-    /// <summary>Maximum accepted file size in bytes. Reported to the user in decimal units.</summary>
+    /// <summary>
+    /// Maximum accepted file size, in bytes. Defaults to 5,000,000 bytes, which is 5 MB.
+    /// </summary>
+    /// <remarks>
+    /// The limit is enforced against this exact value — set it precisely if it has to line up
+    /// with a request body limit or a provider cap. Only the message shown to the user is
+    /// rounded, and always downwards, so it can never state a larger limit than is enforced.
+    /// An inserted image's exact size is <c>EmbeddedImage.Data.Length</c>.
+    /// </remarks>
     [Parameter]
     public long MaxFileSizeBytes { get; set; } = 5_000_000;
 

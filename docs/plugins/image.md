@@ -12,11 +12,11 @@ Adds an insert-image toolbar button. Picked files are stored as blobs (`Embedded
 
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
-| `MaxFileSizeBytes` | `long` | `5_000_000` (5 MB) | Size limit per file. Reported to the user in decimal units (KB/MB/GB), truncated so the message never states a larger limit than is enforced. |
+| `MaxFileSizeBytes` | `long` | `5_000_000` (5 MB) | Size limit per file, in bytes. Enforced on the exact value; only the message shown to the user is rounded — down, to KB/MB/GB — so it never states a larger limit than is enforced. |
 | `Accept` | `string` | `"image/*"` | File input accept filter |
 | `Order` | `int` | `30` | Toolbar position |
 | `ImageInserted` | `EventCallback<EmbeddedImage>` | — | Raised after insertion |
 
 ## Getting the blobs as a developer
 
-The blobs travel with the document: `doc.Images` gives you id, filename, content type, and `byte[]` data (e.g. to upload to storage on save). At render time, `BlazText.Rendering` resolves `blaztext:{id}` references — to data URIs by default, or via your `RenderOptions.ImageResolver` (CDN URL, `cid:` attachment, …). HTML and e-mail previews resolve them automatically.
+The blobs travel with the document: `doc.Images` gives you id, filename, content type, and `byte[]` data (e.g. to upload to storage on save) — `Data.Length` is the image's exact size in bytes. At render time, `BlazText.Rendering` resolves `blaztext:{id}` references — to data URIs by default, or via your `RenderOptions.ImageResolver` (CDN URL, `cid:` attachment, …). HTML and e-mail previews resolve them automatically.
