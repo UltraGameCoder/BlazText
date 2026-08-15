@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using AngleSharp.Html;
 using AngleSharp.Html.Parser;
 using BlazText.Models;
@@ -8,16 +9,24 @@ namespace BlazText.Html;
 public static class HtmlTooling
 {
     /// <summary>
-    /// Content is a body fragment, so it is parsed inside a wrapper document. The wrapper is a
-    /// single line, which means it only shifts columns on line 1 of the caller's source.
+    /// Content is a body fragment, so it is parsed inside a wrapper document. The wrapper must
+    /// stay on a single line: the column correction in <see cref="Validate"/> depends on it,
+    /// since a newline here would shift lines as well as columns.
     /// </summary>
     private const string DocumentPrefix = "<!DOCTYPE html><html><body>";
 
     private const string DocumentSuffix = "</body></html>";
 
+    private static string Wrap(string html)
+    {
+        Debug.Assert(!DocumentPrefix.Contains('\n'), "Validate's column correction assumes a single-line prefix.");
+        return DocumentPrefix + html + DocumentSuffix;
+    }
+
     /// <summary>
     /// Parses <paramref name="html"/> and reports parser errors as validation issues.
-    /// Positions are relative to <paramref name="html"/> itself.
+    /// Positions are relative to <paramref name="html"/> itself, 1-based. A position may be one
+    /// past the last character when the parser reports a problem at end of input.
     /// </summary>
     public static HtmlValidationResult Validate(string html)
     {
@@ -42,7 +51,7 @@ public static class HtmlTooling
             }
         };
 
-        parser.ParseDocument(DocumentPrefix + html + DocumentSuffix);
+        parser.ParseDocument(Wrap(html));
         return result;
     }
 
@@ -50,7 +59,7 @@ public static class HtmlTooling
     public static string Format(string html)
     {
         var parser = new HtmlParser();
-        var document = parser.ParseDocument($"<!DOCTYPE html><html><body>{html}</body></html>");
+        var document = parser.ParseDocument(Wrap(html));
         var writer = new StringWriter();
         var formatter = new PrettyMarkupFormatter { Indentation = "  ", NewLine = "\n" };
 
@@ -66,7 +75,7 @@ public static class HtmlTooling
     public static string Sanitize(string html)
     {
         var parser = new HtmlParser();
-        var document = parser.ParseDocument($"<!DOCTYPE html><html><body>{html}</body></html>");
+        var document = parser.ParseDocument(Wrap(html));
 
         foreach (var element in document.QuerySelectorAll("script, iframe, object, embed, form, base").ToList())
         {
