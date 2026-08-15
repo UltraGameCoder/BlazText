@@ -59,6 +59,22 @@ public class BlazTextRendererTests
     }
 
     [Fact]
+    public async Task Image_id_that_prefixes_another_id_resolves_independently()
+    {
+        var logo = new EmbeddedImage { Id = "logo", ContentType = "image/png", Data = [1] };
+        var logo2 = new EmbeddedImage { Id = "logo2", ContentType = "image/png", Data = [2] };
+        var document = new BlazTextDocument
+        {
+            Content = $"<img src=\"{BlazTextImageUri.Create(logo.Id)}\"><img src=\"{BlazTextImageUri.Create(logo2.Id)}\">",
+            Images = [logo, logo2],
+        };
+
+        var result = await BlazTextRenderer.RenderAsync(document);
+
+        Assert.Equal($"<img src=\"{logo.ToDataUri()}\"><img src=\"{logo2.ToDataUri()}\">", result.Html);
+    }
+
+    [Fact]
     public async Task Custom_image_resolver_wins()
     {
         var image = new EmbeddedImage { ContentType = "image/png", Data = [1] };

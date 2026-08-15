@@ -72,7 +72,10 @@ public static class BlazTextRenderer
 
     private static string ResolveImages(string html, IEnumerable<EmbeddedImage> images, Func<EmbeddedImage, string>? resolver)
     {
-        foreach (var image in images)
+        // Longest id first: ids are settable, so one can be a prefix of another. Replacing
+        // "blaztext:logo" before "blaztext:logo2" would eat the longer reference's prefix and
+        // leave the second image pointing at the first image's data with a stray "2" appended.
+        foreach (var image in images.OrderByDescending(i => i.Id.Length))
         {
             var reference = BlazTextImageUri.Create(image.Id);
             if (html.Contains(reference, StringComparison.OrdinalIgnoreCase))

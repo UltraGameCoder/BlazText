@@ -114,7 +114,9 @@
 
     private string ResolveImages(string html)
     {
-        foreach (var image in Editor.Document.Images)
+        // Longest id first, so an id that is a prefix of another one does not eat the longer
+        // reference's prefix. Matches BlazTextRenderer.ResolveImages.
+        foreach (var image in Editor.Document.Images.OrderByDescending(i => i.Id.Length))
         {
             html = html.Replace(BlazTextImageUri.Create(image.Id), image.ToDataUri(), StringComparison.OrdinalIgnoreCase);
         }
