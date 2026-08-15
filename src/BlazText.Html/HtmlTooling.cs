@@ -1,3 +1,4 @@
+using System.Text;
 using AngleSharp.Html;
 using AngleSharp.Html.Parser;
 using BlazText.Models;
@@ -49,13 +50,16 @@ public static class HtmlTooling
         return writer.ToString().Trim();
     }
 
-    /// <summary>Strips active content (scripts, event handlers, javascript: URLs) for safe previewing.</summary>
+    /// <summary>
+    /// Strips active content (scripts, event handlers, script URLs) for safe previewing.
+    /// <c>&lt;style&gt;</c> blocks are deliberately kept, because e-mail templates need them.
+    /// </summary>
     public static string Sanitize(string html)
     {
         var parser = new HtmlParser();
         var document = parser.ParseDocument($"<!DOCTYPE html><html><body>{html}</body></html>");
 
-        foreach (var element in document.QuerySelectorAll("script, iframe, object, embed, form, base").ToList())
+        foreach (var element in document.QuerySelectorAll("script, iframe, object, embed, form, base, link, meta").ToList())
         {
             element.Remove();
         }
@@ -66,10 +70,10 @@ public static class HtmlTooling
             {
                 var name = attribute.Name;
                 var isEventHandler = name.StartsWith("on", StringComparison.OrdinalIgnoreCase);
-                var isScriptUrl = name is "href" or "src"
-                    && attribute.Value.TrimStart().StartsWith("javascript:", StringComparison.OrdinalIgnoreCase);
+                var isSrcDoc = name.Equals("srcdoc", StringComparison.OrdinalIgnoreCase);
+                var isScriptUrl = UrlAttributes.Contains(name) && IsDangerousUrl(attribute.Value);
 
-                if (isEventHandler || isScriptUrl)
+                if (isEventHandler || isSrcDoc || isScriptUrl)
                 {
                     element.RemoveAttribute(name);
                 }
@@ -77,5 +81,35 @@ public static class HtmlTooling
         }
 
         return document.Body!.InnerHtml;
+    }
+
+    /// <summary>Attributes whose value a browser resolves as a URL.</summary>
+    private static readonly HashSet<string> UrlAttributes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "href", "src", "xlink:href", "action", "formaction", "data", "poster", "background", "srcset", "ping",
+    };
+
+    private static readonly string[] DangerousSchemes =
+        ["javascript:", "vbscript:", "data:text/html", "data:application/xhtml"];
+
+    private static bool IsDangerousUrl(string value)
+    {
+        // A browser strips whitespace, control characters and zero-width characters out of a URL
+        // before it resolves the scheme, so the value has to be normalized the same way first —
+        // otherwise "java&#9;script:" walks straight past a StartsWith check and still executes.
+        var normalized = new StringBuilder(value.Length);
+
+        foreach (var ch in value)
+        {
+            var isNoise = ch <= 0x20 || ch == 0x7f || ch is >= (char)0x200b and <= (char)0x200d || ch == 0xfeff;
+
+            if (!isNoise)
+            {
+                normalized.Append(ch);
+            }
+        }
+
+        var url = normalized.ToString();
+        return DangerousSchemes.Any(scheme => url.StartsWith(scheme, StringComparison.OrdinalIgnoreCase));
     }
 }
