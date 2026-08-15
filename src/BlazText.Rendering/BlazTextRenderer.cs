@@ -54,8 +54,7 @@ public static class BlazTextRenderer
             return source;
         }
 
-        var context = options.LiquidContext
-            ?? new TemplateContext(new TemplateOptions { MemberAccessStrategy = UnsafeMemberAccessStrategy.Instance });
+        var context = options.LiquidContext ?? new TemplateContext(options.LiquidTemplateOptions);
 
         foreach (var (name, value) in options.LiquidValues)
         {

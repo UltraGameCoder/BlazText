@@ -18,6 +18,14 @@
     public Dictionary<string, object?> Drops { get; set; } = [];
 
     /// <summary>
+    /// Fluid options for preview rendering. Like <see cref="RenderOptions.LiquidTemplateOptions"/> it
+    /// allows dictionaries and registered types only, so pass the same instance your backend renders
+    /// with — otherwise a drop that resolves on the server renders empty here (or the reverse).
+    /// </summary>
+    [Parameter]
+    public TemplateOptions? LiquidTemplateOptions { get; set; }
+
+    /// <summary>
     /// Drop paths offered by autocomplete. When omitted, the keys of <see cref="Drops"/> are offered.
     /// Declare deep paths (e.g. "user.name") to make members completable.
     /// </summary>
@@ -119,13 +127,18 @@
 
         public async Task<string> RenderAsync(string html, BlazTextDocument document)
         {
-            var result = await BlazTextRenderer.RenderAsync(
-                new BlazTextDocument { Content = html },
-                new RenderOptions
-                {
-                    LiquidValues = plugin.Drops,
-                    ResolveImages = false,
-                });
+            var options = new RenderOptions
+            {
+                LiquidValues = plugin.Drops,
+                ResolveImages = false,
+            };
+
+            if (plugin.LiquidTemplateOptions is { } templateOptions)
+            {
+                options.LiquidTemplateOptions = templateOptions;
+            }
+
+            var result = await BlazTextRenderer.RenderAsync(new BlazTextDocument { Content = html }, options);
 
             return result.Html;
         }

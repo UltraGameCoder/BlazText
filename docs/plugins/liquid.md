@@ -13,6 +13,7 @@ Makes the editor Liquid-aware ([Shopify Liquid](https://shopify.github.io/liquid
 <BlazTextEditor @bind-Document="doc">
     <AutoCompletePlugin />
     <LiquidPlugin Drops="_drops"
+                  LiquidTemplateOptions="_templateOptions"
                   DropDefinitions="_definitions"
                   DetectedDropsChanged="drops => _used = drops" />
 </BlazTextEditor>
@@ -20,7 +21,7 @@ Makes the editor Liquid-aware ([Shopify Liquid](https://shopify.github.io/liquid
 @code {
     private readonly Dictionary<string, object?> _drops = new()
     {
-        ["user"] = new { name = "Ada", email = "ada@example.com" },
+        ["user"] = new Recipient("Ada", "ada@example.com"),
         ["company"] = "BlazText Inc.",
     };
 
@@ -37,9 +38,12 @@ Makes the editor Liquid-aware ([Shopify Liquid](https://shopify.github.io/liquid
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
 | `Drops` | `Dictionary<string, object?>` | empty | Values used when rendering previews |
+| `LiquidTemplateOptions` | `TemplateOptions?` | registered-members-only | Fluid options for preview rendering — pass the instance your backend renders with |
 | `DropDefinitions` | `IReadOnlyList<LiquidDropDefinition>?` | `Drops` keys | Paths offered by autocomplete (declare deep paths like `user.name`) |
 | `DetectedDropsChanged` | `EventCallback<IReadOnlyList<DetectedDrop>>` | — | Raised when the used-drop set changes |
 | `ParseErrorChanged` | `EventCallback<string?>` | — | Raised when the parse error appears/changes/clears |
 | `Order` | `int` | `80` | Toolbar position of the status badge |
 
 Backend rendering of the saved document uses the same values through `BlazText.Rendering` — see [save-load-and-rendering.md](../save-load-and-rendering.md), including the `{{ body }}` layout-in-layout pattern.
+
+Previews use the same member-access rules as backend rendering: templates read dictionaries and the types you allow, nothing else. Share one `TemplateOptions` between the plugin and your backend so the preview and the sent e-mail resolve identically — see [the trust model](../save-load-and-rendering.md#template-trust-model).
