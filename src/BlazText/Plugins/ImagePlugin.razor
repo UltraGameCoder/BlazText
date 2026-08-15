@@ -6,9 +6,9 @@
     private ToolbarItem? _item;
     private string? _error;
 
-    /// <summary>Maximum accepted file size in bytes.</summary>
+    /// <summary>Maximum accepted file size in bytes. Reported to the user in decimal units.</summary>
     [Parameter]
-    public long MaxFileSizeBytes { get; set; } = 5 * 1024 * 1024;
+    public long MaxFileSizeBytes { get; set; } = 5_000_000;
 
     /// <summary>The file input's accept filter.</summary>
     [Parameter]
@@ -82,12 +82,30 @@
     /// Renders a byte count in the largest unit that keeps it readable. MaxFileSizeBytes is
     /// developer-supplied and need not be a whole number of megabytes.
     /// </summary>
-    private static string FormatSize(long bytes) => bytes switch
+    /// <remarks>
+    /// Decimal units, so a limit written as 2_000_000 reads back as "2 MB" rather than "1.9 MB".
+    /// Truncated rather than rounded: this number is a <em>limit</em>, and rounding up would
+    /// advertise one more permissive than the code enforces — a 1_549_000 limit rounds to
+    /// "1.5 MB" while rejecting a 1.5 MB file. Truncating can only ever understate.
+    /// </remarks>
+    internal static string FormatSize(long bytes)
     {
-        >= 1024 * 1024 => $"{bytes / (1024d * 1024d):0.#} MB",
-        >= 1024 => $"{bytes / 1024d:0.#} KB",
-        _ => $"{bytes} bytes",
-    };
+        const long Kb = 1000;
+        const long Mb = Kb * 1000;
+        const long Gb = Mb * 1000;
+
+        return bytes switch
+        {
+            >= Gb => $"{Truncate(bytes / (double)Gb)} GB",
+            >= Mb => $"{Truncate(bytes / (double)Mb)} MB",
+            >= Kb => $"{Truncate(bytes / (double)Kb)} KB",
+            _ => $"{bytes} bytes",
+        };
+
+        // Truncating before formatting also keeps the unit branch honest: rounding afterwards
+        // turned 1_048_575 into "1024 KB" instead of "1 MB".
+        static string Truncate(double value) => (Math.Truncate(value * 10) / 10).ToString("0.#");
+    }
 
     private RenderFragment Button => @<span style="display: contents">
         <label class="blaztext-btn" title="Insert image" style="margin: 0">

@@ -12,7 +12,7 @@ Adds an insert-image toolbar button. Picked files are stored as blobs (`Embedded
 
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
-| `MaxFileSizeBytes` | `long` | 5 MB | Size limit per file |
+| `MaxFileSizeBytes` | `long` | `5_000_000` (5 MB) | Size limit per file. Reported to the user in decimal units (KB/MB/GB), truncated so the message never states a larger limit than is enforced. |
 | `Accept` | `string` | `"image/*"` | File input accept filter |
 | `Order` | `int` | `30` | Toolbar position |
 | `ImageInserted` | `EventCallback<EmbeddedImage>` | — | Raised after insertion |

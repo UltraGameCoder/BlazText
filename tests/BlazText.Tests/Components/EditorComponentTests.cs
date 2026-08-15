@@ -72,10 +72,10 @@ public class EditorComponentTests : TestContext
     public void Oversized_image_reports_the_limit_in_a_readable_unit()
     {
         var cut = RenderComponent<BlazTextEditor>(p => p
-            .AddChildContent<ImagePlugin>(i => i.Add(x => x.MaxFileSizeBytes, 512 * 1024)));
+            .AddChildContent<ImagePlugin>(i => i.Add(x => x.MaxFileSizeBytes, 512_000)));
         var input = cut.FindComponent<InputFile>();
 
-        input.UploadFiles(InputFileContent.CreateFromBinary(new byte[600 * 1024], "big.png", null, "image/png"));
+        input.UploadFiles(InputFileContent.CreateFromBinary(new byte[600_000], "big.png", null, "image/png"));
 
         // Integer megabyte division used to render a 512 KB limit as "0 MB".
         cut.WaitForAssertion(() => Assert.Equal(
