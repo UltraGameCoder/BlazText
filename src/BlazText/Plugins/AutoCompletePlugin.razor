@@ -86,7 +86,18 @@
 
     private void Open(SuggestionResult result, CaretRect? caret)
     {
-        _items = result.Items.Take(MaxItems).ToList();
+        var items = result.Items.Take(MaxItems).ToList();
+
+        if (items.Count == 0)
+        {
+            // MaxItems is developer-supplied and may be zero or negative. An open popup with
+            // no items would still intercept the arrow keys and then divide by _items.Count.
+            Close();
+            StateHasChanged();
+            return;
+        }
+
+        _items = items;
         _replaceLength = result.ReplaceLength;
         _caret = caret;
         _selectedIndex = 0;
@@ -105,6 +116,13 @@
 
     private async Task HandleKeyAsync(string key)
     {
+        if (_items.Count == 0)
+        {
+            Close();
+            StateHasChanged();
+            return;
+        }
+
         switch (key)
         {
             case "ArrowDown":

@@ -68,6 +68,28 @@ public class EditorComponentTests : TestContext
     }
 
     [Fact]
+    public async Task Autocomplete_with_a_non_positive_item_cap_stays_closed()
+    {
+        var cut = RenderComponent<BlazTextEditor>(p => p
+            .AddChildContent<AutoCompletePlugin>(a => a.Add(x => x.MaxItems, 0)));
+
+        await cut.InvokeAsync(() => cut.Instance.Context.RegisterSuggestionProvider(new StubSuggestionProvider()));
+        await cut.InvokeAsync(() => cut.Instance.NotifyContentChangedAsync("<p>us</p>", "us", new CaretRect(10, 10, 20)));
+
+        // Without the guard the popup opens with zero items, still intercepts the arrow keys,
+        // and then divides by _items.Count.
+        await cut.InvokeAsync(() => cut.Instance.NotifyKeyInterceptedAsync("ArrowDown"));
+
+        Assert.Empty(cut.FindAll(".blaztext-autocomplete"));
+    }
+
+    private sealed class StubSuggestionProvider : ISuggestionProvider
+    {
+        public Task<SuggestionResult?> GetSuggestionsAsync(SuggestionRequest request) =>
+            Task.FromResult<SuggestionResult?>(new SuggestionResult([new Suggestion("user", "user")], 2));
+    }
+
+    [Fact]
     public void Disposing_a_plugin_removes_its_toolbar_item()
     {
         var cut = RenderComponent<BlazTextEditor>(p => p.AddChildContent<BasicFormattingPlugin>());
