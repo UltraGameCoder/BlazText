@@ -23,6 +23,21 @@ public class HtmlToolingTests
     }
 
     [Fact]
+    public void Issue_positions_are_relative_to_the_supplied_html()
+    {
+        const string html = "<p>Hello <b>world</i></p>";
+
+        var result = HtmlTooling.Validate(html);
+
+        // Positions are shown to the user next to their own source, so they have to index into
+        // that source — not into the wrapper document the parser is handed internally.
+        // Column 18 is the "</i>" and column 22 the "</p>".
+        Assert.All(result.Issues, i => Assert.InRange(i.Column, 1, html.Length));
+        Assert.Equal([18, 22], result.Issues.Select(i => i.Column));
+        Assert.All(result.Issues, i => Assert.Equal(1, i.Line));
+    }
+
+    [Fact]
     public void Format_pretty_prints_nested_markup()
     {
         var formatted = HtmlTooling.Format("<div><p>Hi</p></div>");

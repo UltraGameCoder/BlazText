@@ -7,7 +7,18 @@ namespace BlazText.Html;
 /// <summary>AngleSharp-backed HTML validation, formatting, and sanitization for document content.</summary>
 public static class HtmlTooling
 {
-    /// <summary>Parses <paramref name="html"/> and reports parser errors as validation issues.</summary>
+    /// <summary>
+    /// Content is a body fragment, so it is parsed inside a wrapper document. The wrapper is a
+    /// single line, which means it only shifts columns on line 1 of the caller's source.
+    /// </summary>
+    private const string DocumentPrefix = "<!DOCTYPE html><html><body>";
+
+    private const string DocumentSuffix = "</body></html>";
+
+    /// <summary>
+    /// Parses <paramref name="html"/> and reports parser errors as validation issues.
+    /// Positions are relative to <paramref name="html"/> itself.
+    /// </summary>
     public static HtmlValidationResult Validate(string html)
     {
         var result = new HtmlValidationResult();
@@ -24,12 +35,14 @@ public static class HtmlTooling
                     Severity = ValidationSeverity.Warning,
                     Message = error.Message,
                     Line = error.Position.Line,
-                    Column = error.Position.Column,
+                    Column = error.Position.Line == 1
+                        ? Math.Max(1, error.Position.Column - DocumentPrefix.Length)
+                        : error.Position.Column,
                 });
             }
         };
 
-        parser.ParseDocument($"<!DOCTYPE html><html><body>{html}</body></html>");
+        parser.ParseDocument(DocumentPrefix + html + DocumentSuffix);
         return result;
     }
 
