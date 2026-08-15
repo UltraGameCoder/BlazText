@@ -52,7 +52,7 @@
 
         if (file.Size > MaxFileSizeBytes)
         {
-            _error = $"Image exceeds the {MaxFileSizeBytes / 1024 / 1024} MB limit.";
+            _error = $"Image exceeds the {FormatSize(MaxFileSizeBytes)} limit.";
             Editor.RequestRefresh();
             return;
         }
@@ -77,6 +77,17 @@
         await ImageInserted.InvokeAsync(image);
         Editor.RequestRefresh();
     }
+
+    /// <summary>
+    /// Renders a byte count in the largest unit that keeps it readable. MaxFileSizeBytes is
+    /// developer-supplied and need not be a whole number of megabytes.
+    /// </summary>
+    private static string FormatSize(long bytes) => bytes switch
+    {
+        >= 1024 * 1024 => $"{bytes / (1024d * 1024d):0.#} MB",
+        >= 1024 => $"{bytes / 1024d:0.#} KB",
+        _ => $"{bytes} bytes",
+    };
 
     private RenderFragment Button => @<span style="display: contents">
         <label class="blaztext-btn" title="Insert image" style="margin: 0">
