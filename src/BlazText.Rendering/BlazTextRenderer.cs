@@ -33,7 +33,7 @@ public static class BlazTextRenderer
 
         if (options.ResolveImages)
         {
-            html = ResolveImages(html, document.Images, options.ImageResolver);
+            html = ResolveImageReferences(html, document.Images, options.ImageResolver);
         }
 
         if (options.InlineCss)
@@ -70,20 +70,40 @@ public static class BlazTextRenderer
         return await template.RenderAsync(context);
     }
 
-    private static string ResolveImages(string html, IEnumerable<EmbeddedImage> images, Func<EmbeddedImage, string>? resolver)
+    /// <summary>
+    /// Replaces every <c>blaztext:{id}</c> reference in <paramref name="html"/> with a real URI.
+    /// References to ids not present in <paramref name="images"/> are left alone.
+    /// </summary>
+    /// <param name="html">Document HTML that may contain <c>blaztext:{id}</c> references.</param>
+    /// <param name="images">The images available to resolve against.</param>
+    /// <param name="resolver">
+    /// How an image becomes a URL. Defaults to inlining it as a data: URI.
+    /// </param>
+    public static string ResolveImageReferences(
+        string html,
+        IEnumerable<EmbeddedImage> images,
+        Func<EmbeddedImage, string>? resolver = null)
     {
-        // Longest id first: ids are settable, so one can be a prefix of another. Replacing
-        // "blaztext:logo" before "blaztext:logo2" would eat the longer reference's prefix and
-        // leave the second image pointing at the first image's data with a stray "2" appended.
-        foreach (var image in images.OrderByDescending(i => i.Id.Length))
+        ArgumentNullException.ThrowIfNull(images);
+
+        var byId = new Dictionary<string, EmbeddedImage>(StringComparer.Ordinal);
+
+        foreach (var image in images)
         {
-            var reference = BlazTextImageUri.Create(image.Id);
-            if (html.Contains(reference, StringComparison.OrdinalIgnoreCase))
+            // Id is settable and survives a JSON round trip, so it can be null or empty.
+            if (!string.IsNullOrEmpty(image.Id))
             {
-                html = html.Replace(reference, resolver?.Invoke(image) ?? image.ToDataUri(), StringComparison.OrdinalIgnoreCase);
+                byId[image.Id] = image;
             }
         }
 
-        return html;
+        if (byId.Count == 0)
+        {
+            return html;
+        }
+
+        return BlazTextImageUri.ReplaceReferences(
+            html,
+            id => byId.TryGetValue(id, out var image) ? resolver?.Invoke(image) ?? image.ToDataUri() : null);
     }
 }
