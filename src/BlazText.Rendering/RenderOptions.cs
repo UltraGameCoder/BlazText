@@ -13,19 +13,28 @@ public class RenderOptions
     public Dictionary<string, object?> LiquidValues { get; set; } = [];
 
     /// <summary>
-    /// Fluid options used to build the render context, unless <see cref="LiquidContext"/> overrides it.
-    /// Defaults to Fluid's registered-members-only access: templates can read dictionaries and the
-    /// members of types you allow explicitly — nothing else. Deliberately restrictive, because
-    /// BlazText documents are authored by end users; see docs/save-load-and-rendering.md.
+    /// Fluid options used to build the render context, unless <see cref="LiquidContextFactory"/>
+    /// overrides it. Defaults to Fluid's registered-members-only access: templates can read
+    /// dictionaries and the members of types you allow explicitly — nothing else. Deliberately
+    /// restrictive, because BlazText documents are authored by end users; see
+    /// docs/save-load-and-rendering.md.
     /// </summary>
     public TemplateOptions LiquidTemplateOptions { get; set; } = new();
 
     /// <summary>
-    /// Advanced override: a fully configured Fluid <see cref="TemplateContext"/> to render with.
-    /// When set, <see cref="LiquidTemplateOptions"/> is ignored and <see cref="LiquidValues"/> are
-    /// applied on top of the supplied context.
+    /// Advanced override: builds a fully configured Fluid <see cref="TemplateContext"/> to render
+    /// with. When set, <see cref="LiquidTemplateOptions"/> is ignored and <see cref="LiquidValues"/>
+    /// are applied on top of whatever it returns.
     /// </summary>
-    public TemplateContext? LiquidContext { get; set; }
+    /// <remarks>
+    /// A factory rather than a context, because rendering writes to the context it is given.
+    /// This is called once per render, so the values of one document — including the layout's
+    /// body variable — can never be observed by another. Returning the <em>same</em> instance
+    /// every time gives that guarantee up: values leak between sequential renders, and
+    /// <see cref="TemplateContext"/> is not thread-safe, so overlapping renders corrupt it.
+    /// Build a new context inside the factory.
+    /// </remarks>
+    public Func<TemplateContext>? LiquidContextFactory { get; set; }
 
     /// <summary>
     /// Optional Liquid layout template wrapping the rendered content, which is exposed to it
