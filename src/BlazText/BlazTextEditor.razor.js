@@ -166,24 +166,33 @@ export function setInterceptKeys(el, keys) {
 // rather than displaying a match count nothing on screen corresponds to.
 export function highlightRanges(el, ranges, activeIndex) {
     const state = states.get(el);
-    if (!CSS.highlights || !state) return 0;
-    clearHighlights(el);
+    if (!state) return 0;
 
+    // Resolving is independent of painting. The CSS Custom Highlight API is a progressive
+    // enhancement — without it (Firefox before 140, Safari before 17.2) matches are still found,
+    // counted and navigable, and only the visual is skipped. Returning the resolved count
+    // regardless is what keeps the caller's counter honest on those browsers.
     const domRanges = resolveRanges(el, ranges);
     state.searchRanges = domRanges;
 
     const resolved = domRanges.filter(r => r !== null);
-    if (resolved.length === 0) return 0;
 
-    // Built incrementally rather than spread into the constructor: a document with more than
-    // ~65k matches would blow the argument limit and surface as an unhandled JSException.
-    const highlight = new Highlight();
-    for (const range of resolved) highlight.add(range);
-    CSS.highlights.set(state.highlightName, highlight);
+    if (CSS.highlights) {
+        CSS.highlights.delete(state.highlightName);
+        CSS.highlights.delete(state.highlightActiveName);
 
-    const active = activeIndex >= 0 && activeIndex < domRanges.length ? domRanges[activeIndex] : null;
-    if (active) {
-        CSS.highlights.set(state.highlightActiveName, new Highlight(active));
+        if (resolved.length > 0) {
+            // Built incrementally rather than spread into the constructor: a document with more
+            // than ~65k matches would blow the argument limit and surface as a JSException.
+            const highlight = new Highlight();
+            for (const range of resolved) highlight.add(range);
+            CSS.highlights.set(state.highlightName, highlight);
+
+            const active = activeIndex >= 0 && activeIndex < domRanges.length ? domRanges[activeIndex] : null;
+            if (active) {
+                CSS.highlights.set(state.highlightActiveName, new Highlight(active));
+            }
+        }
     }
 
     return resolved.length;

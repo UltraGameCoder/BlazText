@@ -83,6 +83,19 @@ public class SearchPluginTests : TestContext
     }
 
     [Fact]
+    public void Counter_is_correct_on_a_browser_without_the_highlight_api()
+    {
+        // Highlighting is a progressive enhancement (Firefox < 140, Safari < 17.2 lack the CSS
+        // Custom Highlight API). docs/plugins/search.md promises counting and navigation still
+        // work there, so the resolved count must not be tied to whether painting happened.
+        var cut = RenderWithText("a a a", resolved: 3);
+
+        cut.Find("input[type=search]").Input("a");
+
+        cut.WaitForAssertion(() => Assert.Equal("1/3", cut.Find(".blaztext-muted").TextContent.Trim()));
+    }
+
+    [Fact]
     public void Counter_reflects_a_partial_resolve()
     {
         var cut = RenderWithText("a a a", resolved: 2);
