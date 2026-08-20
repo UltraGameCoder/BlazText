@@ -60,6 +60,10 @@ export function dispose(el) {
     document.removeEventListener("selectionchange", state.onSelectionChange);
     clearTimeout(state.selectionTimer);
     clearHighlights(el);
+    // The input/keydown/paste listeners still capture `state`, and only element removal drops
+    // them. Nulling the reference makes a post-dispose callback fail loudly on null rather than
+    // invoking a released .NET object id.
+    state.dotnetRef = null;
     states.delete(el);
 }
 

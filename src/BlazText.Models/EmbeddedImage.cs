@@ -39,10 +39,8 @@ public class EmbeddedImage
         "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!#$&^_.+-");
 
     /// <summary>
-    /// True when <paramref name="contentType"/> is a well-formed <c>image/*</c> MIME type.
-    /// The content type of an upload is supplied by the browser, and it is substituted into
-    /// document HTML by the renderer, so a value carrying a quote would break out of the
-    /// <c>src</c> attribute it lands in. Anything outside the token grammar is rejected.
+    /// True when <paramref name="contentType"/> is a well-formed <c>image/*</c> MIME type,
+    /// i.e. the subtype is a single RFC 2045 token.
     /// </summary>
     public static bool IsImageContentType(string? contentType)
     {
