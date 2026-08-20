@@ -73,6 +73,9 @@ export function dispose(el) {
     clearTimeout(state.selectionTimer);
     clearHighlights(el);
     document.getElementById(state.highlightStyleId)?.remove();
+    // Nulling the reference makes a post-dispose callback fail on null rather than invoking a
+    // released .NET object id; the input/keydown/paste listeners still capture `state`.
+    state.dotnetRef = null;
     states.delete(el);
 }
 

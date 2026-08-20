@@ -8,11 +8,7 @@
     private List<TextRange> _matches = [];
     private int _activeIndex = -1;
 
-    /// <summary>
-    /// How many of <see cref="_matches"/> the browser could actually resolve. The counter is
-    /// driven by this rather than by the match count, so it can never claim hits that nothing
-    /// on screen corresponds to.
-    /// </summary>
+    // Only what the browser could locate: the counter must never claim hits nothing shows.
     private int _resolvedCount;
 
     /// <summary>
