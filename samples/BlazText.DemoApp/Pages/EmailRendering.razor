@@ -20,7 +20,7 @@
     <BasicFormattingPlugin />
     <HtmlPlugin />
     <LiquidPlugin Drops="TemplateDrops.Values" LiquidTemplateOptions="TemplateDrops.Options" />
-    <EmailPreviewPlugin LayoutContent="@Layout" Drops="TemplateDrops.Values" />
+    <EmailPreviewPlugin LayoutContent="@Layout" Drops="TemplateDrops.Values" LiquidTemplateOptions="TemplateDrops.Options" />
 </BlazTextEditor>
 
 <button class="btn btn-primary my-3" @onclick="RenderAsync">Render like a backend would</button>
