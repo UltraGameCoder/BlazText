@@ -54,7 +54,11 @@ public static class BlazTextRenderer
             return source;
         }
 
-        var context = options.LiquidContext
+        // Rendering writes into the context, so every render gets its own. Scoping the writes on
+        // a shared context instead would only hold sequentially: scope push/pop is stack
+        // discipline, and two overlapping renders do not release in LIFO order — one render's
+        // release pops the other's scope, and the values fall through to the wrong document.
+        var context = options.LiquidContextFactory?.Invoke()
             ?? new TemplateContext(new TemplateOptions { MemberAccessStrategy = UnsafeMemberAccessStrategy.Instance });
 
         foreach (var (name, value) in options.LiquidValues)
