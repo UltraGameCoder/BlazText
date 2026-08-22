@@ -24,6 +24,33 @@ public class HtmlToolingTests
     }
 
     [Fact]
+    public void Issue_positions_survive_a_parser_recovery_path()
+    {
+        // AngleSharp does not always keep Line and Column consistent: on some recovery paths it
+        // leaves Line at 1 and reports the absolute offset as Column. Trusting them placed both
+        // of these on line 1, at columns past the end of a 15-character line.
+        var result = HtmlTooling.Validate("<p>line one</p>\nab</i>\ncd</b>");
+
+        Assert.Collection(
+            result.Issues,
+            i => Assert.Equal((2, 3), (i.Line, i.Column)),
+            i => Assert.Equal((3, 3), (i.Line, i.Column)));
+    }
+
+    [Fact]
+    public void Issue_positions_are_unaffected_by_crlf_line_endings()
+    {
+        // The parser normalizes CRLF to LF before counting, so counting the CR as its own
+        // character would drift the result by one per preceding line.
+        var lf = HtmlTooling.Validate("<p>line one</p>\n<p>Hello <b>world</i></p>");
+        var crlf = HtmlTooling.Validate("<p>line one</p>\r\n<p>Hello <b>world</i></p>");
+
+        Assert.Equal(
+            lf.Issues.Select(i => (i.Line, i.Column)),
+            crlf.Issues.Select(i => (i.Line, i.Column)));
+    }
+
+    [Fact]
     public void Issue_positions_are_relative_to_the_supplied_html()
     {
         const string html = "<p>Hello <b>world</i></p>";

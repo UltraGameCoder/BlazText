@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Text;
 using AngleSharp.Html;
 using AngleSharp.Html.Parser;
@@ -9,20 +8,12 @@ namespace BlazText.Html;
 /// <summary>AngleSharp-backed HTML validation, formatting, and sanitization for document content.</summary>
 public static class HtmlTooling
 {
-    /// <summary>
-    /// Content is a body fragment, so it is parsed inside a wrapper document. The wrapper must
-    /// stay on a single line: the column correction in <see cref="Validate"/> depends on it,
-    /// since a newline here would shift lines as well as columns.
-    /// </summary>
+    /// <summary>Content is a body fragment, so it is parsed inside a wrapper document.</summary>
     private const string DocumentPrefix = "<!DOCTYPE html><html><body>";
 
     private const string DocumentSuffix = "</body></html>";
 
-    private static string Wrap(string html)
-    {
-        Debug.Assert(!DocumentPrefix.Contains('\n'), "Validate's column correction assumes a single-line prefix.");
-        return DocumentPrefix + html + DocumentSuffix;
-    }
+    private static string Wrap(string html) => DocumentPrefix + html + DocumentSuffix;
 
     /// <summary>
     /// Parses <paramref name="html"/> and reports parser errors as validation issues.
@@ -38,16 +29,16 @@ public static class HtmlTooling
         {
             if (ev is AngleSharp.Html.Dom.Events.HtmlErrorEvent error)
             {
+                var (line, column) = PositionIn(html, error.Position.Position);
+
                 result.Issues.Add(new ValidationIssue
                 {
                     // The HTML5 parser recovers from everything, so parser errors are warnings:
                     // the content still renders, just possibly not as intended.
                     Severity = ValidationSeverity.Warning,
                     Message = error.Message,
-                    Line = error.Position.Line,
-                    Column = error.Position.Line == 1
-                        ? Math.Max(1, error.Position.Column - DocumentPrefix.Length)
-                        : error.Position.Column,
+                    Line = line,
+                    Column = column,
                 });
             }
         };
@@ -55,6 +46,46 @@ public static class HtmlTooling
         parser.ParseDocument(Wrap(html));
         return result;
     }
+
+    /// <summary>
+    /// Maps the parser's absolute offset into the wrapped document to a 1-based line and column
+    /// in <paramref name="html"/>.
+    /// </summary>
+    /// <remarks>
+    /// Derived from the offset rather than from the parser's own line and column, which are not
+    /// always consistent with each other: on some recovery paths AngleSharp leaves the line at 1
+    /// and reports the absolute offset as the column, which would place an issue on a line it
+    /// does not belong to. The offset is correct in those cases too.
+    /// <para>
+    /// The offset counts source characters, so a CRLF line ending contributes both of them. Only
+    /// the LF advances the line, which leaves the CR as the last column of the line it ends and
+    /// keeps columns on the following line correct.
+    /// </para>
+    /// </remarks>
+    private static (int Line, int Column) PositionIn(string html, int offset)
+    {
+        // The offset is 1-based and includes the wrapper; an error inside the wrapper itself
+        // lands at or before the start of the content, which clamps to 1:1.
+        var target = offset - DocumentPrefix.Length - 1;
+        var line = 1;
+        var column = 1;
+
+        for (var i = 0; i < target && i < html.Length; i++)
+        {
+            if (html[i] == '\n')
+            {
+                line++;
+                column = 1;
+            }
+            else
+            {
+                column++;
+            }
+        }
+
+        return (line, column);
+    }
+
 
     /// <summary>Pretty-prints document content (a body fragment).</summary>
     public static string Format(string html)
