@@ -59,6 +59,65 @@ public class BlazTextRendererTests
     }
 
     [Fact]
+    public async Task Image_id_that_prefixes_another_id_resolves_independently()
+    {
+        var logo = new EmbeddedImage { Id = "logo", ContentType = "image/png", Data = [1] };
+        var logo2 = new EmbeddedImage { Id = "logo2", ContentType = "image/png", Data = [2] };
+        var document = new BlazTextDocument
+        {
+            Content = $"<img src=\"{BlazTextImageUri.Create(logo.Id)}\"><img src=\"{BlazTextImageUri.Create(logo2.Id)}\">",
+            Images = [logo, logo2],
+        };
+
+        var result = await BlazTextRenderer.RenderAsync(document);
+
+        Assert.Equal($"<img src=\"{logo.ToDataUri()}\"><img src=\"{logo2.ToDataUri()}\">", result.Html);
+    }
+
+    [Theory]
+    // A reference to an id that is not registered must survive untouched. Ordering the known
+    // ids by length cannot achieve this: there is no longer id to sort ahead of the reference.
+    [InlineData("logo", "<img src=\"blaztext:logo2\">")]
+    [InlineData("img1", "<img src=\"blaztext:img10\">")]
+    // Lookup is ordinal and case-sensitive, matching how the editor maps ids to images.
+    [InlineData("logo", "<img src=\"blaztext:Logo\">")]
+    public async Task Unregistered_image_reference_is_left_untouched(string registeredId, string content)
+    {
+        var image = new EmbeddedImage { Id = registeredId, ContentType = "image/png", Data = [1] };
+        var document = new BlazTextDocument { Content = content, Images = [image] };
+
+        var result = await BlazTextRenderer.RenderAsync(document);
+
+        Assert.Equal(content, result.Html);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    public async Task Image_with_no_id_does_not_break_rendering(string? id)
+    {
+        var image = new EmbeddedImage { Id = id!, ContentType = "image/png", Data = [1] };
+        var document = new BlazTextDocument { Content = "<p>hi</p>", Images = [image] };
+
+        var result = await BlazTextRenderer.RenderAsync(document);
+
+        Assert.Equal("<p>hi</p>", result.Html);
+    }
+
+    [Fact]
+    public void Resolve_image_references_is_shared_with_the_preview_path()
+    {
+        // HtmlPlugin's preview calls this same method, so preview and sent e-mail cannot drift.
+        var image = new EmbeddedImage { Id = "logo", ContentType = "image/png", Data = [1] };
+
+        var html = BlazTextRenderer.ResolveImageReferences(
+            "<img src=\"blaztext:logo\"><img src=\"blaztext:logo2\">",
+            [image]);
+
+        Assert.Equal($"<img src=\"{image.ToDataUri()}\"><img src=\"blaztext:logo2\">", html);
+    }
+
+    [Fact]
     public async Task Hostile_image_content_type_cannot_break_out_of_the_src_attribute()
     {
         // A document deserialized from storage never passes the plugin's upload guard, so the
