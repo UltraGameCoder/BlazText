@@ -118,6 +118,28 @@ public class BlazTextRendererTests
     }
 
     [Fact]
+    public async Task Hostile_image_content_type_cannot_break_out_of_the_src_attribute()
+    {
+        // A document deserialized from storage never passes the plugin's upload guard, so the
+        // content type has to be safe at the sink. This is the path that reaches e-mail output.
+        var image = new EmbeddedImage
+        {
+            Id = "img1",
+            ContentType = "image/png\" onerror=\"alert(1)",
+            Data = [1],
+        };
+        var document = new BlazTextDocument
+        {
+            Content = $"<img src=\"{BlazTextImageUri.Create(image.Id)}\">",
+            Images = [image],
+        };
+
+        var result = await BlazTextRenderer.RenderAsync(document);
+
+        Assert.DoesNotContain("onerror", result.Html);
+    }
+
+    [Fact]
     public async Task Custom_image_resolver_wins()
     {
         var image = new EmbeddedImage { ContentType = "image/png", Data = [1] };
