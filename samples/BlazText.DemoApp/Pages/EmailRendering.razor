@@ -13,7 +13,7 @@
 <BlazTextEditor @bind-Document="_document">
     <BasicFormattingPlugin />
     <HtmlPlugin />
-    <LiquidPlugin Drops="_drops" />
+    <LiquidPlugin Drops="TemplateDrops.Values" LiquidTemplateOptions="TemplateDrops.Options" />
     <EmailPreviewPlugin LayoutContent="@Layout" />
 </BlazTextEditor>
 
@@ -62,18 +62,13 @@
             """,
     };
 
-    private readonly Dictionary<string, object?> _drops = new()
-    {
-        ["user"] = new { name = "Ada" },
-        ["company"] = "BlazText Inc.",
-    };
-
     private RenderResult? _rendered;
 
     private async Task RenderAsync()
     {
         var options = RenderOptions.ForEmail();
-        options.LiquidValues = _drops;
+        options.LiquidValues = TemplateDrops.Values;
+        options.LiquidTemplateOptions = TemplateDrops.Options;   // same rules as the preview above
         options.LayoutContent = Layout;
 
         _rendered = await BlazTextRenderer.RenderAsync(_document, options);

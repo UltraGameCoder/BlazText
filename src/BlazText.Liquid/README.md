@@ -14,4 +14,8 @@ Shopify Liquid templating plugin for the BlazText editor (powered by Fluid):
 </BlazTextEditor>
 ```
 
+Previews use the same restricted member access as backend rendering (dictionaries and types you allow,
+never the wider object graph). Pass `LiquidTemplateOptions` the same Fluid options your backend renders
+with so the preview keeps telling the truth.
+
 Documentation: https://github.com/UltraGameCoder/BlazText

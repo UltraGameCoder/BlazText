@@ -10,7 +10,7 @@ public class BlazTextRendererTests
     public async Task Renders_liquid_with_supplied_values()
     {
         var document = new BlazTextDocument { Content = "<p>Hi {{ user.name }}!</p>" };
-        var options = new RenderOptions { LiquidValues = { ["user"] = new { name = "Mike" } } };
+        var options = new RenderOptions { LiquidValues = { ["user"] = new Dictionary<string, object?> { ["name"] = "Mike" } } };
 
         var result = await BlazTextRenderer.RenderAsync(document, options);
 
@@ -262,5 +262,82 @@ public class BlazTextRendererTests
         var result = await BlazTextRenderer.RenderAsync(document, RenderOptions.ForWebPage());
 
         Assert.Equal(document.Content, result.Html);
+    }
+
+    [Fact]
+    public async Task Members_of_unregistered_types_are_not_readable_by_default()
+    {
+        var document = new BlazTextDocument { Content = "<p>[{{ order.Reference }}]</p>" };
+        var options = new RenderOptions { LiquidValues = { ["order"] = new Order() } };
+
+        var result = await BlazTextRenderer.RenderAsync(document, options);
+
+        Assert.Equal("<p>[]</p>", result.Html);
+    }
+
+    [Fact]
+    public async Task Allowed_type_does_not_open_up_the_types_it_reaches()
+    {
+        var document = new BlazTextDocument { Content = "<p>[{{ order.Reference }}][{{ order.Internals.ConnectionString }}]</p>" };
+        var options = new RenderOptions { LiquidValues = { ["order"] = new Order() } }
+            .AllowMembersOf<Order>();
+
+        var result = await BlazTextRenderer.RenderAsync(document, options);
+
+        Assert.Equal("<p>[A-1][]</p>", result.Html);
+    }
+
+    [Fact]
+    public async Task Unsafe_opt_in_walks_the_whole_object_graph()
+    {
+        var document = new BlazTextDocument { Content = "<p>[{{ order.Internals.ConnectionString }}]</p>" };
+        var options = new RenderOptions { LiquidValues = { ["order"] = new Order() } }
+            .AllowAllMembersUnsafe();
+
+        var result = await BlazTextRenderer.RenderAsync(document, options);
+
+        Assert.Equal("<p>[secret]</p>", result.Html);
+    }
+
+    [Fact]
+    public async Task Anonymous_drops_are_readable_once_their_runtime_type_is_allowed()
+    {
+        var user = new { name = "Ada" };
+        var document = new BlazTextDocument { Content = "<p>{{ user.name }}</p>" };
+        var options = new RenderOptions { LiquidValues = { ["user"] = user } }
+            .AllowMembersOf(user.GetType());
+
+        var result = await BlazTextRenderer.RenderAsync(document, options);
+
+        Assert.Equal("<p>Ada</p>", result.Html);
+    }
+
+    [Fact]
+    public async Task Supplied_liquid_context_keeps_full_control_of_member_access()
+    {
+        var document = new BlazTextDocument { Content = "<p>{{ order.Reference }}</p>" };
+        var templateOptions = new TemplateOptions { MemberAccessStrategy = UnsafeMemberAccessStrategy.Instance };
+        var options = new RenderOptions
+        {
+            LiquidContextFactory = () => new TemplateContext(templateOptions),
+            LiquidValues = { ["order"] = new Order() },
+        };
+
+        var result = await BlazTextRenderer.RenderAsync(document, options);
+
+        Assert.Equal("<p>A-1</p>", result.Html);
+    }
+
+    private sealed class Order
+    {
+        public string Reference { get; set; } = "A-1";
+
+        /// <summary>Stands in for the service/DbContext references a real entity drags along.</summary>
+        public Infrastructure Internals { get; set; } = new();
+    }
+
+    private sealed class Infrastructure
+    {
+        public string ConnectionString { get; set; } = "secret";
     }
 }
