@@ -13,10 +13,28 @@ public class RenderOptions
     public Dictionary<string, object?> LiquidValues { get; set; } = [];
 
     /// <summary>
-    /// Advanced override: a fully configured Fluid <see cref="TemplateContext"/> to render with.
-    /// When set, <see cref="LiquidValues"/> are applied on top of it.
+    /// Fluid options used to build the render context, unless <see cref="LiquidContextFactory"/>
+    /// overrides it. Defaults to Fluid's registered-members-only access: templates can read
+    /// dictionaries and the members of types you allow explicitly — nothing else. Deliberately
+    /// restrictive, because BlazText documents are authored by end users; see
+    /// docs/save-load-and-rendering.md.
     /// </summary>
-    public TemplateContext? LiquidContext { get; set; }
+    public TemplateOptions LiquidTemplateOptions { get; set; } = new();
+
+    /// <summary>
+    /// Advanced override: builds a fully configured Fluid <see cref="TemplateContext"/> to render
+    /// with. When set, <see cref="LiquidTemplateOptions"/> is ignored and <see cref="LiquidValues"/>
+    /// are applied on top of whatever it returns.
+    /// </summary>
+    /// <remarks>
+    /// A factory rather than a context, because rendering writes to the context it is given.
+    /// This is called once per render, so the values of one document — including the layout's
+    /// body variable — can never be observed by another. Returning the <em>same</em> instance
+    /// every time gives that guarantee up: values leak between sequential renders, and
+    /// <see cref="TemplateContext"/> is not thread-safe, so overlapping renders corrupt it.
+    /// Build a new context inside the factory.
+    /// </remarks>
+    public Func<TemplateContext>? LiquidContextFactory { get; set; }
 
     /// <summary>
     /// Optional Liquid layout template wrapping the rendered content, which is exposed to it
@@ -51,4 +69,34 @@ public class RenderOptions
 
     /// <summary>Preset for webpage output: Liquid + image resolution, no CSS inlining.</summary>
     public static RenderOptions ForWebPage() => new();
+
+    /// <summary>
+    /// Lets Liquid read the public members of <typeparamref name="T"/>. Only that type: members
+    /// whose own type isn't allowed too render as nil, so a drop can't be walked into the wider
+    /// object graph.
+    /// </summary>
+    public RenderOptions AllowMembersOf<T>() => AllowMembersOf(typeof(T));
+
+    /// <summary>
+    /// Type-based overload of <see cref="AllowMembersOf{T}"/>, for types you only have at runtime
+    /// (anonymous types in particular: <c>options.AllowMembersOf(drop.GetType())</c>).
+    /// </summary>
+    public RenderOptions AllowMembersOf(Type type)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        LiquidTemplateOptions.MemberAccessStrategy.Register(type);
+        return this;
+    }
+
+    /// <summary>
+    /// Lets Liquid read every public member of every object reachable from <see cref="LiquidValues"/>,
+    /// however deep. Only appropriate when template authors are as trusted as your own code: a template
+    /// can otherwise walk from a drop into whatever the graph reaches (DbContext, services, configuration).
+    /// Prefer <see cref="AllowMembersOf{T}"/>.
+    /// </summary>
+    public RenderOptions AllowAllMembersUnsafe()
+    {
+        LiquidTemplateOptions.MemberAccessStrategy = UnsafeMemberAccessStrategy.Instance;
+        return this;
+    }
 }

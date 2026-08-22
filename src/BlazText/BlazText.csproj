@@ -9,6 +9,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- So size formatting can be driven directly by a [Theory] instead of one component
+         render per case, which is what let the rounding defects hide. -->
+    <InternalsVisibleTo Include="BlazText.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Components.Web" Version="10.0.8" />
   </ItemGroup>
 

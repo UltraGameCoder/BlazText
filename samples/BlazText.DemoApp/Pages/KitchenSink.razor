@@ -12,7 +12,8 @@
     <AutoCompletePlugin />
     <HtmlPlugin />
     <EmailPreviewPlugin />
-    <LiquidPlugin Drops="_drops"
+    <LiquidPlugin Drops="TemplateDrops.Values"
+                  LiquidTemplateOptions="TemplateDrops.Options"
                   DropDefinitions="_dropDefinitions"
                   DetectedDropsChanged="drops => _detected = drops" />
 </BlazTextEditor>
@@ -47,12 +48,6 @@
     };
 
     private IReadOnlyList<DetectedDrop> _detected = [];
-
-    private readonly Dictionary<string, object?> _drops = new()
-    {
-        ["user"] = new { name = "Ada", email = "ada@example.com" },
-        ["company"] = "BlazText Inc.",
-    };
 
     private readonly List<LiquidDropDefinition> _dropDefinitions =
     [

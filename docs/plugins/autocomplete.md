@@ -13,7 +13,7 @@ The generic suggestion machinery: a caret-anchored popup with keyboard navigatio
 
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
-| `MaxItems` | `int` | `8` | Maximum suggestions shown |
+| `MaxItems` | `int` | `8` | Maximum suggestions shown. Must be greater than zero — a non-positive value throws `ArgumentOutOfRangeException` rather than silently showing nothing. |
 
 ## Supplying your own completions
 
