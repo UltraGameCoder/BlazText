@@ -143,6 +143,27 @@ public class EditorComponentTests : TestContext
         Assert.Contains("alt=\"a&quot; onerror=&quot;alert(1).png\"", html);
         AssertNoEventHandlers(html);
     }
+    [Fact]
+    public void File_name_with_an_ampersand_is_encoded_exactly_once()
+    {
+        var cut = RenderComponent<BlazTextEditor>(p => p.AddChildContent<ImagePlugin>());
+
+        cut.FindComponent<InputFile>().UploadFiles(
+            InputFileContent.CreateFromBinary([1], "kuroko @ kopie & fun.gif", null, "image/gif"));
+
+        var html = (string)_module.Invocations["insertHtml"].Single().Arguments[1]!;
+
+        // & is the character where over- and under-encoding both look plausible in a source
+        // view: &amp; is a correctly serialized literal &, while &amp;amp; would mean the value
+        // was encoded twice. The benign-name test cannot catch either, having nothing to encode.
+        Assert.Contains("alt=\"kuroko @ kopie &amp; fun.gif\"", html);
+        Assert.DoesNotContain("&amp;amp;", html);
+
+        // The assertion that actually matters: it parses back to the name that was uploaded.
+        var document = new HtmlParser().ParseDocument($"<!DOCTYPE html><html><body>{html}</body></html>");
+        Assert.Equal("kuroko @ kopie & fun.gif", document.QuerySelector("img")!.GetAttribute("alt"));
+    }
+
 
     [Fact]
     public void Benign_file_name_survives_without_entity_noise()
