@@ -33,7 +33,7 @@ public static class BlazTextRenderer
 
         if (options.ResolveImages)
         {
-            html = ResolveImages(html, document.Images, options.ImageResolver);
+            html = ResolveImageReferences(html, document.Images, options.ImageResolver);
         }
 
         if (options.InlineCss)
@@ -54,8 +54,14 @@ public static class BlazTextRenderer
             return source;
         }
 
-        var context = options.LiquidContext
-            ?? new TemplateContext(new TemplateOptions { MemberAccessStrategy = UnsafeMemberAccessStrategy.Instance });
+        // Rendering writes into the context, so every render gets its own. Scoping the writes on
+        // a shared context instead would only hold sequentially: scope push/pop is stack
+        // discipline, and two overlapping renders do not release in LIFO order — one render's
+        // release pops the other's scope, and the values fall through to the wrong document.
+        // Without a factory, the context is built from LiquidTemplateOptions, which restricts
+        // member access to dictionaries and explicitly allowed types.
+        var context = options.LiquidContextFactory?.Invoke()
+            ?? new TemplateContext(options.LiquidTemplateOptions);
 
         foreach (var (name, value) in options.LiquidValues)
         {
@@ -70,17 +76,40 @@ public static class BlazTextRenderer
         return await template.RenderAsync(context);
     }
 
-    private static string ResolveImages(string html, IEnumerable<EmbeddedImage> images, Func<EmbeddedImage, string>? resolver)
+    /// <summary>
+    /// Replaces every <c>blaztext:{id}</c> reference in <paramref name="html"/> with a real URI.
+    /// References to ids not present in <paramref name="images"/> are left alone.
+    /// </summary>
+    /// <param name="html">Document HTML that may contain <c>blaztext:{id}</c> references.</param>
+    /// <param name="images">The images available to resolve against.</param>
+    /// <param name="resolver">
+    /// How an image becomes a URL. Defaults to inlining it as a data: URI.
+    /// </param>
+    public static string ResolveImageReferences(
+        string html,
+        IEnumerable<EmbeddedImage> images,
+        Func<EmbeddedImage, string>? resolver = null)
     {
+        ArgumentNullException.ThrowIfNull(images);
+
+        var byId = new Dictionary<string, EmbeddedImage>(StringComparer.Ordinal);
+
         foreach (var image in images)
         {
-            var reference = BlazTextImageUri.Create(image.Id);
-            if (html.Contains(reference, StringComparison.OrdinalIgnoreCase))
+            // Id is settable and survives a JSON round trip, so it can be null or empty.
+            if (!string.IsNullOrEmpty(image.Id))
             {
-                html = html.Replace(reference, resolver?.Invoke(image) ?? image.ToDataUri(), StringComparison.OrdinalIgnoreCase);
+                byId[image.Id] = image;
             }
         }
 
-        return html;
+        if (byId.Count == 0)
+        {
+            return html;
+        }
+
+        return BlazTextImageUri.ReplaceReferences(
+            html,
+            id => byId.TryGetValue(id, out var image) ? resolver?.Invoke(image) ?? image.ToDataUri() : null);
     }
 }
