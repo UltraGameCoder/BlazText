@@ -1,5 +1,6 @@
 @namespace BlazText.Plugins
 @inherits BlazTextPluginBase
+@using System.Net
 @using Microsoft.AspNetCore.Components.Forms
 
 @code {
@@ -43,7 +44,7 @@
         _error = null;
         var file = e.File;
 
-        if (!file.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+        if (!EmbeddedImage.IsImageContentType(file.ContentType))
         {
             _error = "Not an image file.";
             Editor.RequestRefresh();
@@ -72,7 +73,7 @@
         // The DOM shows the data: URI; getContent normalizes it back to blaztext:{id}
         // via the data-blaztext-id marker, so the stored document stays blob-free.
         await Api.InsertHtmlAtSelectionAsync(
-            $"<img data-blaztext-id=\"{image.Id}\" src=\"{image.ToDataUri()}\" alt=\"{file.Name}\">");
+            $"<img data-blaztext-id=\"{image.Id}\" src=\"{image.ToDataUri()}\" alt=\"{WebUtility.HtmlEncode(file.Name)}\">");
 
         await ImageInserted.InvokeAsync(image);
         Editor.RequestRefresh();

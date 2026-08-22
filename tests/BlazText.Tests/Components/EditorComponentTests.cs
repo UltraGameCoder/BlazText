@@ -1,7 +1,9 @@
+using AngleSharp.Html.Parser;
 using BlazText.Liquid;
 using BlazText.Models;
 using BlazText.Plugins;
 using Bunit;
+using Microsoft.AspNetCore.Components.Forms;
 using Microsoft.JSInterop;
 
 namespace BlazText.Tests.Components;
@@ -122,6 +124,82 @@ public class EditorComponentTests : TestContext
 
         await cut.Instance.DisposeAsync();
         await cut.Instance.DisposeAsync();
+    }
+
+    [Fact]
+    public void Inserted_image_html_encodes_the_file_name()
+    {
+        var cut = RenderComponent<BlazTextEditor>(p => p.AddChildContent<ImagePlugin>());
+        var input = cut.FindComponent<InputFile>();
+
+        input.UploadFiles(InputFileContent.CreateFromBinary(
+            [1, 2, 3],
+            "a\" onerror=\"alert(1).png",
+            null,
+            "image/png"));
+
+        var html = (string)_module.Invocations["insertHtml"].Single().Arguments[1]!;
+
+        Assert.Contains("alt=\"a&quot; onerror=&quot;alert(1).png\"", html);
+        AssertNoEventHandlers(html);
+    }
+    [Fact]
+    public void File_name_with_an_ampersand_is_encoded_exactly_once()
+    {
+        var cut = RenderComponent<BlazTextEditor>(p => p.AddChildContent<ImagePlugin>());
+
+        cut.FindComponent<InputFile>().UploadFiles(
+            InputFileContent.CreateFromBinary([1], "kuroko @ kopie & fun.gif", null, "image/gif"));
+
+        var html = (string)_module.Invocations["insertHtml"].Single().Arguments[1]!;
+
+        // & is the character where over- and under-encoding both look plausible in a source
+        // view: &amp; is a correctly serialized literal &, while &amp;amp; would mean the value
+        // was encoded twice. The benign-name test cannot catch either, having nothing to encode.
+        Assert.Contains("alt=\"kuroko @ kopie &amp; fun.gif\"", html);
+        Assert.DoesNotContain("&amp;amp;", html);
+
+        // The assertion that actually matters: it parses back to the name that was uploaded.
+        var document = new HtmlParser().ParseDocument($"<!DOCTYPE html><html><body>{html}</body></html>");
+        Assert.Equal("kuroko @ kopie & fun.gif", document.QuerySelector("img")!.GetAttribute("alt"));
+    }
+
+
+    [Fact]
+    public void Benign_file_name_survives_without_entity_noise()
+    {
+        var cut = RenderComponent<BlazTextEditor>(p => p.AddChildContent<ImagePlugin>());
+
+        cut.FindComponent<InputFile>().UploadFiles(
+            InputFileContent.CreateFromBinary([1], "my photo (1).png", null, "image/png"));
+
+        var html = (string)_module.Invocations["insertHtml"].Single().Arguments[1]!;
+
+        // Guards against someone swapping in an over-aggressive encoder.
+        Assert.Contains("alt=\"my photo (1).png\"", html);
+    }
+
+    [Fact]
+    public void Hostile_content_type_is_rejected_rather_than_emitted()
+    {
+        var cut = RenderComponent<BlazTextEditor>(p => p.AddChildContent<ImagePlugin>());
+
+        cut.FindComponent<InputFile>().UploadFiles(InputFileContent.CreateFromBinary(
+            [1], "ok.png", null, "image/png\" onerror=\"alert(1)"));
+
+        // A prefix check on "image/" accepts this; the upload must not reach the document at all.
+        Assert.Empty(_module.Invocations["insertHtml"]);
+        Assert.Equal("Not an image file.", cut.Find("[role=alert]").TextContent);
+    }
+
+    /// <summary>Parses the emitted HTML and asserts no element carries an on* handler.</summary>
+    private static void AssertNoEventHandlers(string html)
+    {
+        var document = new HtmlParser().ParseDocument($"<!DOCTYPE html><html><body>{html}</body></html>");
+
+        Assert.All(
+            document.QuerySelectorAll("*"),
+            e => Assert.DoesNotContain(e.Attributes, a => a.Name.StartsWith("on", StringComparison.OrdinalIgnoreCase)));
     }
 
     [Fact]

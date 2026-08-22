@@ -4,6 +4,8 @@ Package: `BlazText` · Namespace: `BlazText.Plugins`
 
 Adds an insert-image toolbar button. Picked files are stored as blobs (`EmbeddedImage`) on the document and referenced in the HTML as `src="blaztext:{id}"` — the visible editor shows the image via a data URI, but the saved content stays blob-free.
 
+Files are accepted only when the browser reports a well-formed `image/*` content type; anything else is rejected with "Not an image file.". A stored image whose content type is malformed renders as a generic binary type rather than being emitted into the HTML.
+
 ```razor
 <BlazTextEditor @bind-Document="doc">
     <ImagePlugin MaxFileSizeBytes="2_000_000" ImageInserted="OnInserted" />
