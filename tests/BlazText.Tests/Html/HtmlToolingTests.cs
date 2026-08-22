@@ -24,6 +24,78 @@ public class HtmlToolingTests
     }
 
     [Fact]
+    public void Issue_positions_survive_a_parser_recovery_path()
+    {
+        // AngleSharp does not always keep Line and Column consistent: on some recovery paths it
+        // leaves Line at 1 and reports the absolute offset as Column. Trusting them placed both
+        // of these on line 1, at columns past the end of a 15-character line.
+        var result = HtmlTooling.Validate("<p>line one</p>\nab</i>\ncd</b>");
+
+        Assert.Collection(
+            result.Issues,
+            i => Assert.Equal((2, 3), (i.Line, i.Column)),
+            i => Assert.Equal((3, 3), (i.Line, i.Column)));
+    }
+
+    [Fact]
+    public void Issue_positions_are_unaffected_by_crlf_line_endings()
+    {
+        // The parser normalizes CRLF to LF before counting, so counting the CR as its own
+        // character would drift the result by one per preceding line.
+        var lf = HtmlTooling.Validate("<p>line one</p>\n<p>Hello <b>world</i></p>");
+        var crlf = HtmlTooling.Validate("<p>line one</p>\r\n<p>Hello <b>world</i></p>");
+
+        Assert.Equal(
+            lf.Issues.Select(i => (i.Line, i.Column)),
+            crlf.Issues.Select(i => (i.Line, i.Column)));
+    }
+
+    [Fact]
+    public void Issue_positions_are_relative_to_the_supplied_html()
+    {
+        const string html = "<p>Hello <b>world</i></p>";
+
+        var result = HtmlTooling.Validate(html);
+
+        // Positions are shown to the user next to their own source, so they have to index into
+        // that source — not into the wrapper document the parser is handed internally.
+        // Column 18 is the "</i>" and column 22 the "</p>".
+        Assert.Equal([18, 22], result.Issues.Select(i => i.Column));
+        Assert.All(result.Issues, i => Assert.Equal(1, i.Line));
+        Assert.All(result.Issues, i => Assert.InRange(i.Column, 1, html.Length));
+    }
+
+    [Fact]
+    public void Issue_positions_on_later_lines_are_not_corrected()
+    {
+        // The wrapper occupies line 1 only, so lines 2+ must pass through untouched. Without a
+        // multi-line case a refactor to a blanket subtraction would pass the whole suite.
+        var result = HtmlTooling.Validate("<p>line one</p>\n<p>Hello <b>world</i></p>");
+
+        Assert.Equal([(2, 18), (2, 22)], result.Issues.Select(i => (i.Line, i.Column)));
+    }
+
+    [Theory]
+    [InlineData("<b>x", 5)]
+    [InlineData("<div>", 6)]
+    [InlineData("hello <i>there", 15)]
+    public void Unclosed_tag_is_reported_one_past_the_end_of_input(string html, int expectedColumn)
+    {
+        // The problem is at end of input, so the position is one past the last character — the
+        // usual EOF convention. Pinned because it is the one case that leaves 1..Length.
+        var result = HtmlTooling.Validate(html);
+
+        Assert.All(result.Issues, i => Assert.Equal(expectedColumn, i.Column));
+        Assert.Equal(html.Length + 1, expectedColumn);
+    }
+
+    [Fact]
+    public void Empty_content_produces_no_issues()
+    {
+        Assert.Empty(HtmlTooling.Validate(string.Empty).Issues);
+    }
+
+    [Fact]
     public void Format_pretty_prints_nested_markup()
     {
         var formatted = HtmlTooling.Format("<div><p>Hi</p></div>");
