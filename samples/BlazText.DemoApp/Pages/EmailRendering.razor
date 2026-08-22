@@ -9,12 +9,18 @@
     right shows exactly what a backend produces with <code>RenderOptions.ForEmail()</code> —
     the same pipeline the <code>EmailPreviewPlugin</code> uses.
 </p>
+<p>
+    The layout is itself a Liquid template — its footer uses <code>{{ company }}</code> — so the
+    preview gets the same <code>Drops</code> the backend passes as
+    <code>RenderOptions.LiquidValues</code>. Without them the layout's drops would render empty
+    while the document's still resolved, and the ✉ preview would drift from the sent e-mail.
+</p>
 
 <BlazTextEditor @bind-Document="_document">
     <BasicFormattingPlugin />
     <HtmlPlugin />
     <LiquidPlugin Drops="TemplateDrops.Values" LiquidTemplateOptions="TemplateDrops.Options" />
-    <EmailPreviewPlugin LayoutContent="@Layout" />
+    <EmailPreviewPlugin LayoutContent="@Layout" Drops="TemplateDrops.Values" LiquidTemplateOptions="TemplateDrops.Options" />
 </BlazTextEditor>
 
 <button class="btn btn-primary my-3" @onclick="RenderAsync">Render like a backend would</button>

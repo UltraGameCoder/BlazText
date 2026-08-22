@@ -1,5 +1,6 @@
 @namespace BlazText.Html
 @using BlazText.Rendering
+@using Fluid
 @inherits BlazTextPluginBase
 
 @code {
@@ -22,6 +23,25 @@
     /// </summary>
     [Parameter]
     public string? LayoutContent { get; set; }
+
+    /// <summary>
+    /// Values used to render Liquid in <see cref="LayoutContent"/>, keyed by drop name. The layout
+    /// is a Liquid template, so pass the same drops as <c>LiquidPlugin</c> (and as the backend's
+    /// <see cref="RenderOptions.LiquidValues"/>) or its drops render empty. Drops inside the
+    /// document itself are already resolved by the Liquid plugin's content renderer.
+    /// </summary>
+    [Parameter]
+    public Dictionary<string, object?> Drops { get; set; } = [];
+
+    /// <summary>
+    /// Fluid options used to render <see cref="LayoutContent"/>. Like
+    /// <see cref="RenderOptions.LiquidTemplateOptions"/> it allows dictionaries and registered
+    /// types only, so pass the same instance your backend renders with — otherwise a layout drop
+    /// that resolves on the server renders empty here. Passing <see cref="Drops"/> alone is enough
+    /// only while the layout reads scalars and dictionaries.
+    /// </summary>
+    [Parameter]
+    public TemplateOptions? LiquidTemplateOptions { get; set; }
 
     /// <summary>Preview width in the mobile preset, in CSS pixels.</summary>
     [Parameter]
@@ -90,14 +110,25 @@
         // email pipeline a backend would: image resolution + CSS inlining.
         var html = await Editor.ApplyContentRenderersAsync();
 
+        var options = new RenderOptions
+        {
+            RenderLiquid = false,
+            LayoutContent = LayoutContent,
+            LiquidValues = Drops,
+            InlineCss = true,
+        };
+
+        // Values alone are not enough: what the layout may read from them is decided by the
+        // access strategy, so a preview left on the default would blank out drops the backend
+        // resolves -- the same preview/sent divergence this plugin exists to avoid.
+        if (LiquidTemplateOptions is { } templateOptions)
+        {
+            options.LiquidTemplateOptions = templateOptions;
+        }
+
         var result = await BlazTextRenderer.RenderAsync(
             new BlazTextDocument { Content = html, Images = Editor.Document.Images },
-            new RenderOptions
-            {
-                RenderLiquid = false,
-                LayoutContent = LayoutContent,
-                InlineCss = true,
-            });
+            options);
 
         _previewHtml = HtmlTooling.Sanitize(result.Html);
         _warnings = result.Warnings;
