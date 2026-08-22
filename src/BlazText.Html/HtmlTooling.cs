@@ -1,3 +1,4 @@
+using System.Text;
 using AngleSharp.Html;
 using AngleSharp.Html.Parser;
 using BlazText.Models;
@@ -7,7 +8,18 @@ namespace BlazText.Html;
 /// <summary>AngleSharp-backed HTML validation, formatting, and sanitization for document content.</summary>
 public static class HtmlTooling
 {
-    /// <summary>Parses <paramref name="html"/> and reports parser errors as validation issues.</summary>
+    /// <summary>Content is a body fragment, so it is parsed inside a wrapper document.</summary>
+    private const string DocumentPrefix = "<!DOCTYPE html><html><body>";
+
+    private const string DocumentSuffix = "</body></html>";
+
+    private static string Wrap(string html) => DocumentPrefix + html + DocumentSuffix;
+
+    /// <summary>
+    /// Parses <paramref name="html"/> and reports parser errors as validation issues.
+    /// Positions are relative to <paramref name="html"/> itself, 1-based. A position may be one
+    /// past the last character when the parser reports a problem at end of input.
+    /// </summary>
     public static HtmlValidationResult Validate(string html)
     {
         var result = new HtmlValidationResult();
@@ -17,27 +29,69 @@ public static class HtmlTooling
         {
             if (ev is AngleSharp.Html.Dom.Events.HtmlErrorEvent error)
             {
+                var (line, column) = PositionIn(html, error.Position.Position);
+
                 result.Issues.Add(new ValidationIssue
                 {
                     // The HTML5 parser recovers from everything, so parser errors are warnings:
                     // the content still renders, just possibly not as intended.
                     Severity = ValidationSeverity.Warning,
                     Message = error.Message,
-                    Line = error.Position.Line,
-                    Column = error.Position.Column,
+                    Line = line,
+                    Column = column,
                 });
             }
         };
 
-        parser.ParseDocument($"<!DOCTYPE html><html><body>{html}</body></html>");
+        parser.ParseDocument(Wrap(html));
         return result;
     }
+
+    /// <summary>
+    /// Maps the parser's absolute offset into the wrapped document to a 1-based line and column
+    /// in <paramref name="html"/>.
+    /// </summary>
+    /// <remarks>
+    /// Derived from the offset rather than from the parser's own line and column, which are not
+    /// always consistent with each other: on some recovery paths AngleSharp leaves the line at 1
+    /// and reports the absolute offset as the column, which would place an issue on a line it
+    /// does not belong to. The offset is correct in those cases too.
+    /// <para>
+    /// The offset counts source characters, so a CRLF line ending contributes both of them. Only
+    /// the LF advances the line, which leaves the CR as the last column of the line it ends and
+    /// keeps columns on the following line correct.
+    /// </para>
+    /// </remarks>
+    private static (int Line, int Column) PositionIn(string html, int offset)
+    {
+        // The offset is 1-based and includes the wrapper; an error inside the wrapper itself
+        // lands at or before the start of the content, which clamps to 1:1.
+        var target = offset - DocumentPrefix.Length - 1;
+        var line = 1;
+        var column = 1;
+
+        for (var i = 0; i < target && i < html.Length; i++)
+        {
+            if (html[i] == '\n')
+            {
+                line++;
+                column = 1;
+            }
+            else
+            {
+                column++;
+            }
+        }
+
+        return (line, column);
+    }
+
 
     /// <summary>Pretty-prints document content (a body fragment).</summary>
     public static string Format(string html)
     {
         var parser = new HtmlParser();
-        var document = parser.ParseDocument($"<!DOCTYPE html><html><body>{html}</body></html>");
+        var document = parser.ParseDocument(Wrap(html));
         var writer = new StringWriter();
         var formatter = new PrettyMarkupFormatter { Indentation = "  ", NewLine = "\n" };
 
@@ -49,15 +103,42 @@ public static class HtmlTooling
         return writer.ToString().Trim();
     }
 
-    /// <summary>Strips active content (scripts, event handlers, javascript: URLs) for safe previewing.</summary>
+    /// <summary>
+    /// Strips active content (scripts, event handlers, script URLs) for safe previewing.
+    /// <c>&lt;style&gt;</c> blocks are deliberately kept, because e-mail templates need them.
+    /// </summary>
     public static string Sanitize(string html)
     {
-        var parser = new HtmlParser();
-        var document = parser.ParseDocument($"<!DOCTYPE html><html><body>{html}</body></html>");
+        // IsScripting must match the consumer's environment. The parser defaults to false, but a
+        // browser has scripting on and treats <noscript> as raw text — so with the default, a
+        // payload hidden inside what this parser reads as a <noscript> attribute round-trips
+        // unexamined and becomes live markup when the output is parsed again.
+        var parser = new HtmlParser(new HtmlParserOptions { IsScripting = true });
+        var document = parser.ParseDocument(Wrap(html));
 
-        foreach (var element in document.QuerySelectorAll("script, iframe, object, embed, form, base").ToList())
+        // template content lives in a separate DocumentFragment that QuerySelectorAll does not
+        // descend into, so it cannot be sanitized in place — drop it wholesale instead.
+        foreach (var element in document.QuerySelectorAll("script, iframe, object, embed, form, base, link, template").ToList())
         {
             element.Remove();
+        }
+
+        // Only http-equiv is dangerous (refresh redirects). charset and viewport are needed:
+        // EmailPreviewPlugin's mobile preview is meaningless without <meta name="viewport">.
+        foreach (var element in document.QuerySelectorAll("meta[http-equiv]").ToList())
+        {
+            element.Remove();
+        }
+
+        // <style> is kept for e-mail templates, but only in the HTML namespace. In the SVG
+        // namespace it is not a raw-text element, so entity-encoded text parses as a text node
+        // that AngleSharp then serializes back unescaped — turning inert input into live markup.
+        foreach (var element in document.QuerySelectorAll("style").ToList())
+        {
+            if (!string.Equals(element.NamespaceUri, HtmlNamespace, StringComparison.Ordinal))
+            {
+                element.Remove();
+            }
         }
 
         foreach (var element in document.QuerySelectorAll("*"))
@@ -66,10 +147,10 @@ public static class HtmlTooling
             {
                 var name = attribute.Name;
                 var isEventHandler = name.StartsWith("on", StringComparison.OrdinalIgnoreCase);
-                var isScriptUrl = name is "href" or "src"
-                    && attribute.Value.TrimStart().StartsWith("javascript:", StringComparison.OrdinalIgnoreCase);
+                var isSrcDoc = name.Equals("srcdoc", StringComparison.OrdinalIgnoreCase);
+                var isScriptUrl = UrlAttributes.Contains(name) && HasDangerousUrl(name, attribute.Value);
 
-                if (isEventHandler || isScriptUrl)
+                if (isEventHandler || isSrcDoc || isScriptUrl)
                 {
                     element.RemoveAttribute(name);
                 }
@@ -77,5 +158,52 @@ public static class HtmlTooling
         }
 
         return document.Body!.InnerHtml;
+    }
+
+    private const string HtmlNamespace = "http://www.w3.org/1999/xhtml";
+
+    /// <summary>Attributes whose value a browser resolves as a URL.</summary>
+    private static readonly HashSet<string> UrlAttributes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "href", "src", "xlink:href", "action", "formaction", "data", "poster", "background", "srcset", "ping",
+    };
+
+    private static readonly string[] DangerousSchemes =
+        ["javascript:", "vbscript:", "data:text/html", "data:application/xhtml"];
+
+    private static readonly char[] Whitespace = [' ', '\t', '\n', '\r', '\f'];
+
+    /// <summary>
+    /// Checks an attribute value against its own grammar. Most URL attributes hold a single URL,
+    /// but <c>srcset</c> is a comma-separated candidate list and <c>ping</c> a space-separated
+    /// one — checking those as a single string only ever inspects the first entry.
+    /// </summary>
+    private static bool HasDangerousUrl(string name, string value) => name.ToLowerInvariant() switch
+    {
+        // IsDangerousUrl only looks at the prefix, so the trailing descriptor needs no trimming.
+        "srcset" => value.Split(',').Any(IsDangerousUrl),
+        "ping" => value.Split(Whitespace, StringSplitOptions.RemoveEmptyEntries).Any(IsDangerousUrl),
+        _ => IsDangerousUrl(value),
+    };
+
+    private static bool IsDangerousUrl(string value)
+    {
+        // A browser strips whitespace, control characters and zero-width characters out of a URL
+        // before it resolves the scheme, so the value has to be normalized the same way first —
+        // otherwise "java&#9;script:" walks straight past a StartsWith check and still executes.
+        var normalized = new StringBuilder(value.Length);
+
+        foreach (var ch in value)
+        {
+            var isNoise = ch <= 0x20 || ch == 0x7f || ch is >= (char)0x200b and <= (char)0x200d || ch == 0xfeff;
+
+            if (!isNoise)
+            {
+                normalized.Append(ch);
+            }
+        }
+
+        var url = normalized.ToString();
+        return DangerousSchemes.Any(scheme => url.StartsWith(scheme, StringComparison.OrdinalIgnoreCase));
     }
 }

@@ -33,8 +33,13 @@ public abstract class EditorApi
     /// </summary>
     public abstract Task ApplyFormatAsync(string command, string? value = null);
 
-    /// <summary>Highlights character ranges of the plain text (e.g. search matches); pass the active one to emphasize it.</summary>
-    public abstract Task HighlightRangesAsync(IReadOnlyList<TextRange> ranges, int activeIndex = -1);
+    /// <summary>
+    /// Highlights character ranges of the plain text (e.g. search matches); pass the active one
+    /// to emphasize it. Returns how many ranges resolved against the live DOM — fewer than were
+    /// passed means the content moved on since the offsets were read, and any count shown to the
+    /// user is stale.
+    /// </summary>
+    public abstract Task<int> HighlightRangesAsync(IReadOnlyList<TextRange> ranges, int activeIndex = -1);
 
     public abstract Task ClearHighlightsAsync();
 
