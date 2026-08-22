@@ -333,8 +333,24 @@ public partial class BlazTextEditor : ComponentBase, IAsyncDisposable
         public override Task ApplyFormatAsync(string command, string? value = null) =>
             InvokeVoidAsync("applyFormat", command, value);
 
-        public override Task HighlightRangesAsync(IReadOnlyList<TextRange> ranges, int activeIndex = -1) =>
-            InvokeVoidAsync("highlightRanges", ranges, activeIndex);
+        public override async Task<int> HighlightRangesAsync(IReadOnlyList<TextRange> ranges, int activeIndex = -1)
+        {
+            if (editor._module is null || editor._disposed)
+            {
+                return 0;
+            }
+
+            try
+            {
+                return await editor._module.InvokeAsync<int>("highlightRanges", editor._surface, ranges, activeIndex);
+            }
+            catch (Exception e) when (editor.IsAbandonedCall(e))
+            {
+                // Nothing resolved, which is what a caller acting on the count should see.
+                editor.Log(e, "highlightRanges was abandoned");
+                return 0;
+            }
+        }
 
         public override Task ClearHighlightsAsync() => InvokeVoidAsync("clearHighlights");
 

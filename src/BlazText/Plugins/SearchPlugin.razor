@@ -8,6 +8,9 @@
     private List<TextRange> _matches = [];
     private int _activeIndex = -1;
 
+    // Only what the browser could locate: the counter must never claim hits nothing shows.
+    private int _resolvedCount;
+
     /// <summary>
     /// How matches are compared. The toolbar's "Aa" toggle switches between this comparison's
     /// case-sensitive and case-insensitive variants at runtime.
@@ -77,12 +80,13 @@
         await RunSearchAsync(keepActive: false);
     }
 
-    private async Task RunSearchAsync(bool keepActive)
+    private async Task RunSearchAsync(bool keepActive, bool isRetry = false)
     {
         if (_query.Length == 0)
         {
             _matches = [];
             _activeIndex = -1;
+            _resolvedCount = 0;
             await Api.ClearHighlightsAsync();
             return;
         }
@@ -103,7 +107,23 @@
             ? -1
             : keepActive && _activeIndex >= 0 ? Math.Min(_activeIndex, matches.Count - 1) : 0;
 
-        await Api.HighlightRangesAsync(_matches, _activeIndex);
+        var resolved = await Api.HighlightRangesAsync(_matches, _activeIndex);
+
+        if (resolved != _matches.Count && !isRetry)
+        {
+            // The text was read and the highlights applied in two separate interop round trips,
+            // so an edit in between leaves offsets pointing at content that moved. Re-read once;
+            // if it still disagrees, the counter below reports what resolved, not what matched.
+            await RunSearchAsync(keepActive, isRetry: true);
+            return;
+        }
+
+        _resolvedCount = resolved;
+
+        if (_activeIndex >= _resolvedCount)
+        {
+            _activeIndex = _resolvedCount - 1;
+        }
 
         if (_activeIndex >= 0 && !keepActive)
         {
@@ -121,7 +141,7 @@
         }
 
         _activeIndex = (_activeIndex + direction + _matches.Count) % _matches.Count;
-        await Api.HighlightRangesAsync(_matches, _activeIndex);
+        _resolvedCount = await Api.HighlightRangesAsync(_matches, _activeIndex);
         await Api.ScrollToHighlightAsync(_activeIndex);
         Editor.RequestRefresh();
     }
@@ -148,7 +168,7 @@
         <button type="button" class="blaztext-btn" title="Next match" @onclick="@(() => MoveAsync(1))">↓</button>
         @if (_query.Length > 0)
         {
-            <span class="blaztext-muted">@(_matches.Count == 0 ? "0/0" : $"{_activeIndex + 1}/{_matches.Count}")</span>
+            <span class="blaztext-muted">@(_resolvedCount == 0 ? "0/0" : $"{_activeIndex + 1}/{_resolvedCount}")</span>
         }
     </span>;
 }
