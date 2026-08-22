@@ -182,6 +182,163 @@ public class EditorComponentTests : TestContext
     }
 
     [Fact]
+    public void Disposing_a_plugin_survives_a_disconnected_circuit()
+    {
+        var module = JSInterop.SetupModule("./_content/BlazText/BlazTextEditor.razor.js");
+        module.Mode = JSRuntimeMode.Loose;
+        // SearchPlugin clears its highlights in OnDisposingAsync. On a circuit that is being
+        // torn down, that interop call reaches a browser which is already gone.
+        module.SetupVoid("clearHighlights", _ => true).SetException(new JSDisconnectedException("circuit gone"));
+
+        var cut = RenderComponent<BlazTextEditor>(p => p.AddChildContent<SearchPlugin>());
+        cut.WaitForAssertion(() => Assert.NotNull(cut.Find(".blaztext-toolbar input[type=search]")));
+
+        cut.SetParametersAndRender(p => p.AddChildContent(builder => { }));
+
+        cut.WaitForAssertion(() => Assert.Empty(cut.FindAll(".blaztext-toolbar")));
+    }
+
+    [Theory]
+    // The value-returning members bypassed the guarded helper entirely, and docs/extending.md
+    // presents GetContentAsync/SetContentAsync as *the* plugin surface.
+    [InlineData("getContent")]
+    [InlineData("getPlainText")]
+    [InlineData("setContent")]
+    [InlineData("clearHighlights")]
+    public async Task Api_calls_on_a_dead_circuit_do_not_throw(string method)
+    {
+        var module = JSInterop.SetupModule("./_content/BlazText/BlazTextEditor.razor.js");
+        module.Mode = JSRuntimeMode.Loose;
+        module.Setup<string>(method, _ => true).SetException(new JSDisconnectedException("circuit gone"));
+        module.SetupVoid(method, _ => true).SetException(new JSDisconnectedException("circuit gone"));
+
+        var cut = RenderComponent<BlazTextEditor>();
+        var api = cut.Instance.Api;
+
+        await (method switch
+        {
+            "getContent" => api.GetContentAsync(),
+            "getPlainText" => api.GetPlainTextAsync(),
+            "setContent" => api.SetContentAsync("<p>x</p>"),
+            _ => api.ClearHighlightsAsync(),
+        });
+    }
+
+    [Fact]
+    public async Task Api_falls_back_to_the_known_content_when_the_circuit_is_gone()
+    {
+        var module = JSInterop.SetupModule("./_content/BlazText/BlazTextEditor.razor.js");
+        module.Mode = JSRuntimeMode.Loose;
+        module.Setup<string>("getContent", _ => true).SetException(new JSDisconnectedException("circuit gone"));
+
+        var document = new BlazTextDocument { Content = "<p>known</p>" };
+        var cut = RenderComponent<BlazTextEditor>(p => p.Add(e => e.Document, document));
+
+        Assert.Equal("<p>known</p>", await cut.Instance.Api.GetContentAsync());
+    }
+
+    [Fact]
+    public async Task A_module_error_on_a_live_circuit_still_surfaces()
+    {
+        var module = JSInterop.SetupModule("./_content/BlazText/BlazTextEditor.razor.js");
+        module.Mode = JSRuntimeMode.Loose;
+        module.SetupVoid("applyFormat", _ => true).SetException(new JSException("bug in the module"));
+
+        var cut = RenderComponent<BlazTextEditor>();
+
+        // An explicit design commitment: a genuine module bug is not a disconnect, and this
+        // pins it so a later widening to catch (Exception) cannot pass CI silently.
+        await Assert.ThrowsAsync<JSException>(() => cut.Instance.Api.ApplyFormatAsync("bold"));
+    }
+
+    [Fact]
+    public async Task A_timed_out_call_on_a_live_circuit_still_surfaces()
+    {
+        var module = JSInterop.SetupModule("./_content/BlazText/BlazTextEditor.razor.js");
+        module.Mode = JSRuntimeMode.Loose;
+        module.SetupVoid("applyFormat", _ => true).SetException(new TaskCanceledException());
+
+        var cut = RenderComponent<BlazTextEditor>();
+
+        // The interop timeout fires on a slow-but-alive browser. Absorbing it outside teardown
+        // would turn a congested circuit into an unbounded silent no-op.
+        await Assert.ThrowsAsync<TaskCanceledException>(() => cut.Instance.Api.ApplyFormatAsync("bold"));
+    }
+
+    [Fact]
+    public async Task Api_calls_after_disposal_are_skipped()
+    {
+        var cut = RenderComponent<BlazTextEditor>();
+        var api = cut.Instance.Api;
+        await cut.Instance.DisposeAsync();
+
+        // Exercises the _disposed fast path rather than the catch: no interop is attempted.
+        await api.ApplyFormatAsync("bold");
+        Assert.Equal(string.Empty, await api.GetPlainTextAsync());
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    [InlineData(int.MinValue)]
+    public void Autocomplete_rejects_a_non_positive_item_cap(int maxItems)
+    {
+        // Silently showing nothing is worse to debug than a loud failure at the point of the
+        // mistake, so the misconfiguration is rejected rather than absorbed.
+        Assert.Throws<ArgumentOutOfRangeException>(() => RenderComponent<BlazTextEditor>(p => p
+            .AddChildContent<AutoCompletePlugin>(a => a.Add(x => x.MaxItems, maxItems))));
+    }
+
+    [Fact]
+    public async Task Autocomplete_without_a_caret_does_not_intercept_keys()
+    {
+        var cut = RenderComponent<BlazTextEditor>(p => p.AddChildContent<AutoCompletePlugin>());
+
+        await cut.InvokeAsync(() => cut.Instance.Context.RegisterSuggestionProvider(new StubSuggestionProvider()));
+        // caretRect() returns null whenever the selection sits outside the editing surface.
+        await cut.InvokeAsync(() => cut.Instance.NotifyContentChangedAsync("<p>us</p>", "us", null));
+
+        // Popup absence alone is too weak an assertion: an invisible-but-intercepting popup
+        // satisfies it. Assert that no keys were handed to the browser for interception.
+        Assert.Empty(cut.FindAll(".blaztext-autocomplete"));
+        Assert.All(
+            _module.Invocations["setInterceptKeys"],
+            i => Assert.Empty((string[])i.Arguments[1]!));
+
+        // And that Enter cannot commit an item the user never saw.
+        await cut.InvokeAsync(() => cut.Instance.NotifyKeyInterceptedAsync("Enter"));
+        Assert.Empty(_module.Invocations["replaceTextBeforeCaret"]);
+    }
+
+    [Fact]
+    public async Task Autocomplete_arrow_keys_wrap_around_the_item_list()
+    {
+        var cut = RenderComponent<BlazTextEditor>(p => p.AddChildContent<AutoCompletePlugin>());
+
+        await cut.InvokeAsync(() => cut.Instance.Context.RegisterSuggestionProvider(
+            new StubSuggestionProvider("a", "b", "c")));
+        await cut.InvokeAsync(() => cut.Instance.NotifyContentChangedAsync("<p>us</p>", "us", new CaretRect(10, 10, 20)));
+
+        // The modulo arithmetic the crash guard protects is otherwise untested.
+        Assert.Equal("a", ActiveItem());
+        await cut.InvokeAsync(() => cut.Instance.NotifyKeyInterceptedAsync("ArrowDown"));
+        Assert.Equal("b", ActiveItem());
+        await cut.InvokeAsync(() => cut.Instance.NotifyKeyInterceptedAsync("ArrowUp"));
+        await cut.InvokeAsync(() => cut.Instance.NotifyKeyInterceptedAsync("ArrowUp"));
+        Assert.Equal("c", ActiveItem());
+
+        string ActiveItem() => cut.Find(".blaztext-autocomplete-item.active").TextContent.Trim();
+    }
+
+    private sealed class StubSuggestionProvider(params string[] labels) : ISuggestionProvider
+    {
+        public Task<SuggestionResult?> GetSuggestionsAsync(SuggestionRequest request) =>
+            Task.FromResult<SuggestionResult?>(new SuggestionResult(
+                (labels.Length > 0 ? labels : ["user"]).Select(l => new Suggestion(l, l)).ToList(),
+                2));
+    }
+
+    [Fact]
     public void Disposing_a_plugin_removes_its_toolbar_item()
     {
         var cut = RenderComponent<BlazTextEditor>(p => p.AddChildContent<BasicFormattingPlugin>());

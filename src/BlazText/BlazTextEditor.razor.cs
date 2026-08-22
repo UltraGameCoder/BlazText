@@ -256,6 +256,15 @@ public partial class BlazTextEditor : ComponentBase, IAsyncDisposable
     private static bool IsDeadBrowserContext(Exception e) =>
         e is JSDisconnectedException or ObjectDisposedException or OperationCanceledException;
 
+    /// <summary>
+    /// Whether a failed API call should be absorbed. During teardown any dead-context exception
+    /// qualifies. Outside teardown only <see cref="JSDisconnectedException"/> does: a cancelled
+    /// call on a live circuit is the JS interop timeout firing on a slow-but-alive browser, and
+    /// swallowing that would turn a congested circuit into an unbounded silent no-op.
+    /// </summary>
+    private bool IsAbandonedCall(Exception e) =>
+        e is JSDisconnectedException || (_disposed && IsDeadBrowserContext(e));
+
     private void Log(Exception e, string message) =>
         (_logger ??= (Services.GetService(typeof(ILoggerFactory)) as ILoggerFactory)?.CreateLogger<BlazTextEditor>())
             ?.LogDebug(e, "{Message}", message);
@@ -264,18 +273,30 @@ public partial class BlazTextEditor : ComponentBase, IAsyncDisposable
     {
         public override BlazTextDocument Document => editor._document;
 
-        public override async Task<string> GetContentAsync() =>
-            editor._module is null ? editor._document.Content : await editor._module.InvokeAsync<string>("getContent", editor._surface);
+        public override async Task<string> GetContentAsync()
+        {
+            if (editor._module is null || editor._disposed)
+            {
+                return editor._document.Content;
+            }
+
+            try
+            {
+                return await editor._module.InvokeAsync<string>("getContent", editor._surface);
+            }
+            catch (Exception e) when (editor.IsAbandonedCall(e))
+            {
+                editor.Log(e, "getContent was abandoned; falling back to the last known content");
+                return editor._document.Content;
+            }
+        }
 
         public override async Task SetContentAsync(string html)
         {
             editor._document.Content = html;
             editor._lastKnownContent = html;
 
-            if (editor._module is not null)
-            {
-                await editor._module.InvokeVoidAsync("setContent", editor._surface, html, editor.BuildImageMap());
-            }
+            await InvokeVoidAsync("setContent", html, editor.BuildImageMap());
 
             await editor.RaiseBindingsAsync();
             await editor._context.RaiseContentChangedAsync(new ContentChangedEventArgs
@@ -285,8 +306,23 @@ public partial class BlazTextEditor : ComponentBase, IAsyncDisposable
             });
         }
 
-        public override Task<string> GetPlainTextAsync() =>
-            editor._module?.InvokeAsync<string>("getPlainText", editor._surface).AsTask() ?? Task.FromResult(string.Empty);
+        public override async Task<string> GetPlainTextAsync()
+        {
+            if (editor._module is null || editor._disposed)
+            {
+                return string.Empty;
+            }
+
+            try
+            {
+                return await editor._module.InvokeAsync<string>("getPlainText", editor._surface);
+            }
+            catch (Exception e) when (editor.IsAbandonedCall(e))
+            {
+                editor.Log(e, "getPlainText was abandoned");
+                return string.Empty;
+            }
+        }
 
         public override Task InsertHtmlAtSelectionAsync(string html) =>
             InvokeVoidAsync("insertHtml", html);
@@ -297,8 +333,24 @@ public partial class BlazTextEditor : ComponentBase, IAsyncDisposable
         public override Task ApplyFormatAsync(string command, string? value = null) =>
             InvokeVoidAsync("applyFormat", command, value);
 
-        public override Task HighlightRangesAsync(IReadOnlyList<TextRange> ranges, int activeIndex = -1) =>
-            InvokeVoidAsync("highlightRanges", ranges, activeIndex);
+        public override async Task<int> HighlightRangesAsync(IReadOnlyList<TextRange> ranges, int activeIndex = -1)
+        {
+            if (editor._module is null || editor._disposed)
+            {
+                return 0;
+            }
+
+            try
+            {
+                return await editor._module.InvokeAsync<int>("highlightRanges", editor._surface, ranges, activeIndex);
+            }
+            catch (Exception e) when (editor.IsAbandonedCall(e))
+            {
+                // Nothing resolved, which is what a caller acting on the count should see.
+                editor.Log(e, "highlightRanges was abandoned");
+                return 0;
+            }
+        }
 
         public override Task ClearHighlightsAsync() => InvokeVoidAsync("clearHighlights");
 
@@ -314,9 +366,24 @@ public partial class BlazTextEditor : ComponentBase, IAsyncDisposable
 
         private async Task InvokeVoidAsync(string method, params object?[] args)
         {
-            if (editor._module is not null)
+            if (editor._module is null || editor._disposed)
+            {
+                return;
+            }
+
+            try
             {
                 await editor._module.InvokeVoidAsync(method, [editor._surface, .. args]);
+            }
+            catch (Exception e) when (editor.IsAbandonedCall(e))
+            {
+                // Plugins clean up through this API in OnDisposingAsync — SearchPlugin clears
+                // its highlights there — which on a torn-down circuit means talking to a
+                // browser that is already gone. Nothing a plugin can act on, so it is absorbed
+                // rather than thrown; logged, because a call that silently does nothing is
+                // otherwise impossible to debug from the outside.
+                // A JSException (a genuine error inside the module) is deliberately not caught.
+                editor.Log(e, $"{method} was abandoned");
             }
         }
     }
