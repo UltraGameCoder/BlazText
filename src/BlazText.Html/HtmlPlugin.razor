@@ -1,4 +1,5 @@
 @namespace BlazText.Html
+@using BlazText.Rendering
 @inherits BlazTextPluginBase
 
 @code {
@@ -108,18 +109,10 @@
         // Content renderers make the preview plugin-aware: with the Liquid plugin
         // attached, the preview shows rendered output rather than raw syntax.
         var html = await Editor.ApplyContentRenderersAsync();
-        html = ResolveImages(html);
+        // Same resolution the renderer performs, rather than a second copy of it: two
+        // implementations of one rule is how the preview and the sent e-mail drift apart.
+        html = BlazTextRenderer.ResolveImageReferences(html, Editor.Document.Images);
         _previewHtml = HtmlTooling.Sanitize(html);
-    }
-
-    private string ResolveImages(string html)
-    {
-        foreach (var image in Editor.Document.Images)
-        {
-            html = html.Replace(BlazTextImageUri.Create(image.Id), image.ToDataUri(), StringComparison.OrdinalIgnoreCase);
-        }
-
-        return html;
     }
 
     private void SetPanel(EditorPanel? panel, bool register)

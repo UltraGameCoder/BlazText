@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Components;
+using Microsoft.JSInterop;
 
 namespace BlazText;
 
@@ -35,7 +36,19 @@ public abstract class BlazTextPluginBase : ComponentBase, IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         Context?.UnregisterPlugin(this);
-        await OnDisposingAsync();
+
+        try
+        {
+            await OnDisposingAsync();
+        }
+        catch (Exception e) when (e is JSDisconnectedException or ObjectDisposedException or OperationCanceledException)
+        {
+            // A third-party plugin doing its own interop in OnDisposingAsync should not take the
+            // circuit down when the browser is already gone. This cannot resume the rest of that
+            // plugin's cleanup — only the plugin can order its own teardown so the local work
+            // happens before any interop — but it does contain the blast radius.
+        }
+
         GC.SuppressFinalize(this);
     }
 }

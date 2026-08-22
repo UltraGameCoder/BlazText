@@ -15,6 +15,8 @@ A plugin is an ordinary Razor component derived from `BlazTextPluginBase`, place
 
 And through `Api` (the `EditorApi`): `GetContentAsync`, `SetContentAsync`, `InsertHtmlAtSelectionAsync`, `ApplyFormatAsync`, `HighlightRangesAsync`, `UpdateDocumentAsync`, …
 
+`HighlightRangesAsync` returns how many of the ranges it could locate in the live content. That can be fewer than you passed when the document changed between reading its text and highlighting it, so treat a lower number as "my offsets are stale" rather than ignoring it.
+
 > **Rendering rule:** toolbar items and panels execute inside the *editor's* render tree. When your plugin's state changes what those fragments display, call `Editor.RequestRefresh()` — your component's own `StateHasChanged()` won't reach them.
 
 ## Example: a color picker toolbar item
