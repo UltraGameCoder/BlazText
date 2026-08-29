@@ -10,6 +10,7 @@ jobs:
     permissions:
       id-token: write # OIDC token for nuget.org trusted publishing
       contents: read
+      packages: write # push to GitHub Packages
     steps:
       - uses: actions/checkout@v4
         with:
@@ -25,3 +26,7 @@ jobs:
         with:
           user: UltraGameCoder
       - run: dotnet nuget push "artifacts/*.nupkg" --api-key ${{ steps.login.outputs.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
+      - name: Push to GitHub Packages
+        run: |
+          dotnet nuget add source --username UltraGameCoder --password ${{ secrets.GITHUB_TOKEN }} --store-password-in-clear-text --name github "https://nuget.pkg.github.com/UltraGameCoder/index.json"
+          dotnet nuget push "artifacts/*.nupkg" --api-key ${{ secrets.GITHUB_TOKEN }} --source github --skip-duplicate
