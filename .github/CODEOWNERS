@@ -1,0 +1,8 @@
+# Paths that can publish packages, or change what gets published, need review
+# from an owner rather than from any approver with write access.
+#
+# This file lists itself on purpose: a rule that the pull request it governs is
+# free to delete is not a rule.
+
+/.github/workflows/  @UltraGameCoder
+/.github/CODEOWNERS  @UltraGameCoder
