@@ -52,3 +52,5 @@ Run the demo app and check whatever your change touches:
 Maintainers publish via `dotnet pack` from a tagged commit; package metadata lives in `Directory.Build.props`.
 
 The release workflow holds the credentials that publish to nuget.org and GitHub Packages, so changes under `.github/workflows/` need review from a code owner — see [.github/CODEOWNERS](.github/CODEOWNERS).
+
+The publish job runs in the `production` GitHub environment, so any protection rules on that environment — a required reviewer, for instance — are satisfied before a tagged commit publishes anything.
